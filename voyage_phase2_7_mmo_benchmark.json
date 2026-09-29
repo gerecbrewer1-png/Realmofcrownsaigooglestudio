@@ -1,0 +1,233 @@
+[
+  {
+    "suite": "World Scaling",
+    "name": "10 World Entities",
+    "worldEntities": 10,
+    "aoiEntities": 9,
+    "prefetchEntities": 1,
+    "netTiers": [
+      0,
+      1,
+      8,
+      0,
+      1,
+      0
+    ],
+    "cpuTimeMs": 0.258,
+    "bandwidthKbSec": 0,
+    "messagesPerSec": 0,
+    "transformUpdatesPerSec": 0,
+    "success": true,
+    "notes": "Client replicated 9/10 entities. Cost: 0.258ms/frame."
+  },
+  {
+    "suite": "World Scaling",
+    "name": "100 World Entities",
+    "worldEntities": 100,
+    "aoiEntities": 9,
+    "prefetchEntities": 9,
+    "netTiers": [
+      0,
+      1,
+      8,
+      0,
+      9,
+      0
+    ],
+    "cpuTimeMs": 0.111,
+    "bandwidthKbSec": 0,
+    "messagesPerSec": 0,
+    "transformUpdatesPerSec": 0,
+    "success": true,
+    "notes": "Client replicated 9/100 entities. Cost: 0.111ms/frame."
+  },
+  {
+    "suite": "World Scaling",
+    "name": "500 World Entities",
+    "worldEntities": 500,
+    "aoiEntities": 9,
+    "prefetchEntities": 9,
+    "netTiers": [
+      0,
+      1,
+      8,
+      0,
+      9,
+      0
+    ],
+    "cpuTimeMs": 0.339,
+    "bandwidthKbSec": 2.19,
+    "messagesPerSec": 80,
+    "transformUpdatesPerSec": 80,
+    "success": true,
+    "notes": "Client replicated 9/500 entities. Cost: 0.339ms/frame."
+  },
+  {
+    "suite": "World Scaling",
+    "name": "1000 World Entities",
+    "worldEntities": 1000,
+    "aoiEntities": 9,
+    "prefetchEntities": 9,
+    "netTiers": [
+      0,
+      1,
+      8,
+      0,
+      9,
+      0
+    ],
+    "cpuTimeMs": 0.111,
+    "bandwidthKbSec": 0,
+    "messagesPerSec": 0,
+    "transformUpdatesPerSec": 0,
+    "success": true,
+    "notes": "Client replicated 9/1000 entities. Cost: 0.111ms/frame."
+  },
+  {
+    "suite": "Dense Local",
+    "name": "25 Nearby Entities",
+    "worldEntities": 25,
+    "aoiEntities": 25,
+    "prefetchEntities": 0,
+    "netTiers": [
+      6,
+      19,
+      0,
+      0,
+      0,
+      0
+    ],
+    "cpuTimeMs": 0.134,
+    "bandwidthKbSec": 1.64,
+    "messagesPerSec": 60,
+    "transformUpdatesPerSec": 60,
+    "success": true,
+    "notes": "Budget capped AOI at 25. High rate (NET0+NET1) = 25."
+  },
+  {
+    "suite": "Dense Local",
+    "name": "50 Nearby Entities",
+    "worldEntities": 50,
+    "aoiEntities": 50,
+    "prefetchEntities": 0,
+    "netTiers": [
+      6,
+      42,
+      2,
+      0,
+      0,
+      0
+    ],
+    "cpuTimeMs": 0.367,
+    "bandwidthKbSec": 1.64,
+    "messagesPerSec": 60,
+    "transformUpdatesPerSec": 60,
+    "success": true,
+    "notes": "Budget capped AOI at 50. High rate (NET0+NET1) = 48."
+  },
+  {
+    "suite": "Dense Local",
+    "name": "100 Nearby Entities",
+    "worldEntities": 100,
+    "aoiEntities": 100,
+    "prefetchEntities": 0,
+    "netTiers": [
+      6,
+      42,
+      52,
+      0,
+      0,
+      0
+    ],
+    "cpuTimeMs": 0.759,
+    "bandwidthKbSec": 1.64,
+    "messagesPerSec": 60,
+    "transformUpdatesPerSec": 60,
+    "success": true,
+    "notes": "Budget capped AOI at 100. High rate (NET0+NET1) = 48."
+  },
+  {
+    "suite": "Dense Local",
+    "name": "200 Nearby Entities",
+    "worldEntities": 200,
+    "aoiEntities": 128,
+    "prefetchEntities": 72,
+    "netTiers": [
+      6,
+      42,
+      80,
+      0,
+      72,
+      0
+    ],
+    "cpuTimeMs": 0.982,
+    "bandwidthKbSec": 1.64,
+    "messagesPerSec": 60,
+    "transformUpdatesPerSec": 60,
+    "success": true,
+    "notes": "Budget capped AOI at 128. High rate (NET0+NET1) = 48."
+  },
+  {
+    "suite": "Distributed World",
+    "name": "1000 World Entities with Small AOI",
+    "worldEntities": 1000,
+    "aoiEntities": 2,
+    "prefetchEntities": 3,
+    "netTiers": [
+      0,
+      0,
+      2,
+      0,
+      3,
+      0
+    ],
+    "cpuTimeMs": 0.049,
+    "bandwidthKbSec": 0,
+    "messagesPerSec": 0,
+    "transformUpdatesPerSec": 0,
+    "success": true,
+    "notes": "O(1) spatial hash culls ~998 irrelevant ships. Client processes only 2 entities."
+  },
+  {
+    "suite": "Pirate Traversal",
+    "name": "Full AOI Traversal Inward & Outward",
+    "worldEntities": 1,
+    "aoiEntities": 0,
+    "prefetchEntities": 0,
+    "netTiers": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "cpuTimeMs": 0.05,
+    "bandwidthKbSec": 0.28,
+    "messagesPerSec": 10,
+    "transformUpdatesPerSec": 10,
+    "success": true,
+    "notes": "Pirate transitions smoothly through all tiers, engages combat at NET0, leaves AOI cleanly while preserving server state."
+  },
+  {
+    "suite": "Memory Stability",
+    "name": "100 Repeated Enter/Leave Cycles",
+    "worldEntities": 0,
+    "aoiEntities": 0,
+    "prefetchEntities": 0,
+    "netTiers": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "cpuTimeMs": 0.1,
+    "bandwidthKbSec": 0,
+    "messagesPerSec": 0,
+    "transformUpdatesPerSec": 0,
+    "success": true,
+    "notes": "Heap delta after 100 populate/drain cycles: 1.57 MB. Final active entities: 0."
+  }
+]

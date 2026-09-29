@@ -1,0 +1,369 @@
+{
+  "baseline": {
+    "diagnostics": {
+      "fps": 10,
+      "frameTimeMs": 99.3,
+      "drawCalls": 727,
+      "triangles": 30094,
+      "points": 0,
+      "lines": 152,
+      "geometries": 723,
+      "textures": 21,
+      "activeShips": 6,
+      "totalShips": 10,
+      "visibleShips": 6,
+      "culledShips": 4,
+      "lodCounts": {
+        "lod0": 3,
+        "lod1": 2,
+        "lod2": 1,
+        "lod3": 0,
+        "culled": 4
+      },
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 7,
+        "sim2": 0,
+        "sim3": 0,
+        "sim4": 0
+      },
+      "pirateStats": {
+        "total": 3,
+        "active": 3,
+        "visible": 2,
+        "culled": 1,
+        "sim0": 2
+      },
+      "npcStats": {
+        "spawned": 10,
+        "active": 6,
+        "visible": 6,
+        "culled": 4
+      },
+      "aiUpdatesThisFrame": 5,
+      "aiUpdatesPerSec": 50,
+      "spatialGridEntities": 9,
+      "poolStats": {
+        "activeBalls": 0,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "debugSwitches": {
+        "optiPixelEnabled": true,
+        "bvhEnabled": true,
+        "frustumCullingEnabled": false,
+        "occlusionCullingEnabled": true,
+        "shipLODEnabled": true,
+        "gpuInstancingEnabled": true,
+        "adaptiveQualityEnabled": false,
+        "forceLOD0OnAllPirates": false
+      },
+      "qualityTier": "HIGH",
+      "reflectionStatus": "ON (1/2 Frames)",
+      "shadowQuality": "1024 / 80m",
+      "rendererBackend": "WebGL2",
+      "rendererOwnership": "Three.js (Voyage Exclusive)",
+      "activeRenderLoops": 1,
+      "activeGPUContexts": 1,
+      "connectionState": "Client-Authoritative Simulation (Phase 2.7 MMO Ready)",
+      "mmoDiag": {
+        "totalWorldEntities": 9,
+        "aoiCount": 9,
+        "prefetchCount": 0,
+        "netTiers": [
+          1,
+          2,
+          6,
+          0,
+          0,
+          0
+        ],
+        "simTiers": [
+          1,
+          2,
+          6,
+          0,
+          0
+        ],
+        "incomingBytesPerSec": 840,
+        "messagesPerSec": 30,
+        "transformUpdatesPerSec": 30,
+        "currentRegion": "Archipelago_Central",
+        "currentZone": "Sovereign_Haven",
+        "currentCell": "0,0"
+      }
+    },
+    "mmoDiag": {
+      "totalWorldEntities": 9,
+      "aoiCount": 9,
+      "prefetchCount": 0,
+      "netTiers": [
+        1,
+        2,
+        6,
+        0,
+        0,
+        0
+      ],
+      "simTiers": [
+        1,
+        2,
+        6,
+        0,
+        0
+      ],
+      "incomingBytesPerSec": 840,
+      "messagesPerSec": 30,
+      "transformUpdatesPerSec": 30,
+      "currentRegion": "Archipelago_Central",
+      "currentZone": "Sovereign_Haven",
+      "currentCell": "0,0"
+    }
+  },
+  "world500": {
+    "diagnostics": {
+      "fps": 10,
+      "frameTimeMs": 100,
+      "drawCalls": 721,
+      "triangles": 29902,
+      "points": 0,
+      "lines": 152,
+      "geometries": 724,
+      "textures": 21,
+      "activeShips": 6,
+      "totalShips": 10,
+      "visibleShips": 6,
+      "culledShips": 4,
+      "lodCounts": {
+        "lod0": 3,
+        "lod1": 2,
+        "lod2": 1,
+        "lod3": 0,
+        "culled": 4
+      },
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 7,
+        "sim2": 0,
+        "sim3": 0,
+        "sim4": 0
+      },
+      "pirateStats": {
+        "total": 3,
+        "active": 3,
+        "visible": 2,
+        "culled": 1,
+        "sim0": 2
+      },
+      "npcStats": {
+        "spawned": 10,
+        "active": 6,
+        "visible": 6,
+        "culled": 4
+      },
+      "aiUpdatesThisFrame": 6,
+      "aiUpdatesPerSec": 50,
+      "spatialGridEntities": 9,
+      "poolStats": {
+        "activeBalls": 0,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "debugSwitches": {
+        "optiPixelEnabled": true,
+        "bvhEnabled": true,
+        "frustumCullingEnabled": false,
+        "occlusionCullingEnabled": true,
+        "shipLODEnabled": true,
+        "gpuInstancingEnabled": true,
+        "adaptiveQualityEnabled": false,
+        "forceLOD0OnAllPirates": false
+      },
+      "qualityTier": "HIGH",
+      "reflectionStatus": "ON (1/2 Frames)",
+      "shadowQuality": "1024 / 80m",
+      "rendererBackend": "WebGL2",
+      "rendererOwnership": "Three.js (Voyage Exclusive)",
+      "activeRenderLoops": 1,
+      "activeGPUContexts": 1,
+      "connectionState": "Client-Authoritative Simulation (Phase 2.7 MMO Ready)",
+      "mmoDiag": {
+        "totalWorldEntities": 509,
+        "aoiCount": 9,
+        "prefetchCount": 1,
+        "netTiers": [
+          1,
+          2,
+          6,
+          0,
+          1,
+          0
+        ],
+        "simTiers": [
+          1,
+          2,
+          6,
+          0,
+          0
+        ],
+        "incomingBytesPerSec": 840,
+        "messagesPerSec": 30,
+        "transformUpdatesPerSec": 30,
+        "currentRegion": "Archipelago_Central",
+        "currentZone": "Sovereign_Haven",
+        "currentCell": "0,0"
+      }
+    },
+    "mmoDiag": {
+      "totalWorldEntities": 509,
+      "aoiCount": 9,
+      "prefetchCount": 1,
+      "netTiers": [
+        1,
+        2,
+        6,
+        0,
+        1,
+        0
+      ],
+      "simTiers": [
+        1,
+        2,
+        6,
+        0,
+        0
+      ],
+      "incomingBytesPerSec": 840,
+      "messagesPerSec": 30,
+      "transformUpdatesPerSec": 30,
+      "currentRegion": "Archipelago_Central",
+      "currentZone": "Sovereign_Haven",
+      "currentCell": "0,0"
+    }
+  },
+  "dense50": {
+    "diagnostics": {
+      "fps": 15,
+      "frameTimeMs": 66.9,
+      "drawCalls": 700,
+      "triangles": 28822,
+      "points": 0,
+      "lines": 152,
+      "geometries": 724,
+      "textures": 21,
+      "activeShips": 6,
+      "totalShips": 10,
+      "visibleShips": 6,
+      "culledShips": 4,
+      "lodCounts": {
+        "lod0": 3,
+        "lod1": 2,
+        "lod2": 1,
+        "lod3": 0,
+        "culled": 4
+      },
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 7,
+        "sim2": 0,
+        "sim3": 0,
+        "sim4": 0
+      },
+      "pirateStats": {
+        "total": 3,
+        "active": 3,
+        "visible": 2,
+        "culled": 1,
+        "sim0": 2
+      },
+      "npcStats": {
+        "spawned": 10,
+        "active": 6,
+        "visible": 6,
+        "culled": 4
+      },
+      "aiUpdatesThisFrame": 5,
+      "aiUpdatesPerSec": 44,
+      "spatialGridEntities": 9,
+      "poolStats": {
+        "activeBalls": 0,
+        "totalBallsInPool": 90,
+        "activeParticles": 3,
+        "totalParticlesInPool": 180
+      },
+      "debugSwitches": {
+        "optiPixelEnabled": true,
+        "bvhEnabled": true,
+        "frustumCullingEnabled": false,
+        "occlusionCullingEnabled": true,
+        "shipLODEnabled": true,
+        "gpuInstancingEnabled": true,
+        "adaptiveQualityEnabled": false,
+        "forceLOD0OnAllPirates": false
+      },
+      "qualityTier": "HIGH",
+      "reflectionStatus": "ON (1/2 Frames)",
+      "shadowQuality": "1024 / 80m",
+      "rendererBackend": "WebGL2",
+      "rendererOwnership": "Three.js (Voyage Exclusive)",
+      "activeRenderLoops": 1,
+      "activeGPUContexts": 1,
+      "connectionState": "Client-Authoritative Simulation (Phase 2.7 MMO Ready)",
+      "mmoDiag": {
+        "totalWorldEntities": 559,
+        "aoiCount": 59,
+        "prefetchCount": 1,
+        "netTiers": [
+          5,
+          38,
+          16,
+          0,
+          1,
+          0
+        ],
+        "simTiers": [
+          5,
+          38,
+          16,
+          0,
+          0
+        ],
+        "incomingBytesPerSec": 12040,
+        "messagesPerSec": 430,
+        "transformUpdatesPerSec": 430,
+        "currentRegion": "Archipelago_Central",
+        "currentZone": "Sovereign_Haven",
+        "currentCell": "0,0"
+      }
+    },
+    "mmoDiag": {
+      "totalWorldEntities": 559,
+      "aoiCount": 59,
+      "prefetchCount": 1,
+      "netTiers": [
+        5,
+        38,
+        16,
+        0,
+        1,
+        0
+      ],
+      "simTiers": [
+        5,
+        38,
+        16,
+        0,
+        0
+      ],
+      "incomingBytesPerSec": 12040,
+      "messagesPerSec": 430,
+      "transformUpdatesPerSec": 430,
+      "currentRegion": "Archipelago_Central",
+      "currentZone": "Sovereign_Haven",
+      "currentCell": "0,0"
+    }
+  },
+  "timestamp": "2026-09-24T21:19:54.249Z"
+}

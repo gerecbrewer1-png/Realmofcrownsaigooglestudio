@@ -1,0 +1,114 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "User account profile, level, power, and premium currency.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "avatar": { "type": "string" },
+        "playerLevel": { "type": "number" },
+        "playerExp": { "type": "number" },
+        "vipLevel": { "type": "number" },
+        "power": { "type": "number" },
+        "gems": { "type": "number" },
+        "shieldExpiresAt": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid", "displayName", "playerLevel", "gems"]
+    },
+    "Kingdom": {
+      "title": "Kingdom",
+      "description": "Player kingdom, resources, castle tier, and construction queue.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string" },
+        "castleLevel": { "type": "number" },
+        "resources": { "type": "object" },
+        "lastResourceUpdate": { "type": "number" },
+        "constructionQueue": { "type": "array" }
+      },
+      "required": ["ownerUid", "castleLevel", "resources"]
+    },
+    "Building": {
+      "title": "Building",
+      "description": "Individual building slot in kingdom.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "level": { "type": "number" },
+        "slot": { "type": "string" }
+      },
+      "required": ["id", "type", "level"]
+    },
+    "Quest": {
+      "title": "Quest",
+      "description": "Player quest state and completion.",
+      "type": "object",
+      "properties": {
+        "questId": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" },
+        "target": { "type": "number" }
+      },
+      "required": ["questId", "status"]
+    },
+    "InventoryItem": {
+      "title": "InventoryItem",
+      "description": "Consumable items, speedups, and resource packs.",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "name": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["itemId", "quantity"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Authoritative ledger entry for currency audit.",
+      "type": "object",
+      "properties": {
+        "transactionId": { "type": "string" },
+        "playerId": { "type": "string" },
+        "source": { "type": "string" },
+        "currencyType": { "type": "string" },
+        "amountDelta": { "type": "number" },
+        "balanceAfter": { "type": "number" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["transactionId", "playerId", "amountDelta", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/players/{playerId}": {
+      "schema": { "$ref": "#/entities/Player" },
+      "description": "Player profile document"
+    },
+    "/kingdoms/{kingdomId}": {
+      "schema": { "$ref": "#/entities/Kingdom" },
+      "description": "Kingdom settlement document"
+    },
+    "/kingdoms/{kingdomId}/buildings/{buildingId}": {
+      "schema": { "$ref": "#/entities/Building" },
+      "description": "Building instances in a kingdom"
+    },
+    "/inventory/{playerId}/items/{itemId}": {
+      "schema": { "$ref": "#/entities/InventoryItem" },
+      "description": "Player inventory slots"
+    },
+    "/quests/{playerId}/tasks/{questId}": {
+      "schema": { "$ref": "#/entities/Quest" },
+      "description": "Quest tasks"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Audit transactions"
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-09-24T21:40:42.698Z",
+  "twoClientMutualVisibility": true,
+  "pirateCoexistenceVerified": true,
+  "reconnectTestPassed": true,
+  "duplicateLoginPolicyVerified": true,
+  "loadStages": [
+    {
+      "clients": 2,
+      "messagesPerSec": 100,
+      "bytesPerSec": 0,
+      "avgRttMs": 15,
+      "serverMemoryMB": 53,
+      "eventLoopDelayMs": 0
+    },
+    {
+      "clients": 10,
+      "messagesPerSec": 1813,
+      "bytesPerSec": 0,
+      "avgRttMs": 44,
+      "serverMemoryMB": 47.5,
+      "eventLoopDelayMs": 6
+    },
+    {
+      "clients": 25,
+      "messagesPerSec": 13778,
+      "bytesPerSec": 0,
+      "avgRttMs": 77,
+      "serverMemoryMB": 57.4,
+      "eventLoopDelayMs": 13
+    },
+    {
+      "clients": 50,
+      "messagesPerSec": 13467,
+      "bytesPerSec": 0,
+      "avgRttMs": 94,
+      "serverMemoryMB": 69,
+      "eventLoopDelayMs": 151
+    },
+    {
+      "clients": 100,
+      "messagesPerSec": 12912,
+      "bytesPerSec": 0,
+      "avgRttMs": 109,
+      "serverMemoryMB": 52.1,
+      "eventLoopDelayMs": 1808
+    }
+  ],
+  "zeroWorldSpamTest": {
+    "worldEntities": 1000,
+    "clientReceivedEntities": 2,
+    "cullEfficiencyPercent": 99.8,
+    "passed": true
+  },
+  "denseAoiTest": {
+    "denseEntities": 44,
+    "replicatedEntities": 42,
+    "budgetEnforced": true
+  },
+  "slowClientTest": {
+    "deltasQueued": 50,
+    "coalescedCount": 0,
+    "serverRemainedStable": true
+  },
+  "badClientTest": {
+    "malformedRejected": true,
+    "nanRejected": true,
+    "oversizedRejected": true,
+    "serverSurvived": true
+  },
+  "memoryLeakTest": {
+    "cycles": 50,
+    "heapStartMB": 91.7,
+    "heapEndMB": 94.8,
+    "leakDetected": false
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "playerOnly": {
+    "fps": 3,
+    "frameTimeMs": 450.3,
+    "drawCalls": 282,
+    "visibleShips": 1,
+    "visiblePirates": 0,
+    "culledShips": 9,
+    "playerShipLOD": "LOD0 (Hero)",
+    "triangles": 17260,
+    "lodDistribution": {
+      "lod0": 1,
+      "lod1": 0,
+      "lod2": 0,
+      "lod3": 0,
+      "culled": 9
+    }
+  },
+  "playerPirate": {
+    "fps": 2,
+    "frameTimeMs": 250.1,
+    "drawCalls": 458,
+    "visibleShips": 2,
+    "visiblePirates": 1,
+    "culledShips": 8,
+    "playerShipLOD": "LOD0 (Hero)",
+    "triangles": 21958,
+    "lodDistribution": {
+      "lod0": 2,
+      "lod1": 0,
+      "lod2": 0,
+      "lod3": 0,
+      "culled": 8
+    }
+  },
+  "playerMultiPirates": {
+    "fps": 2,
+    "frameTimeMs": 834.1,
+    "drawCalls": 504,
+    "visibleShips": 4,
+    "visiblePirates": 2,
+    "culledShips": 6,
+    "playerShipLOD": "LOD0 (Hero)",
+    "triangles": 23396,
+    "lodDistribution": {
+      "lod0": 2,
+      "lod1": 2,
+      "lod2": 0,
+      "lod3": 0,
+      "culled": 6
+    }
+  },
+  "fiveShips": {
+    "fps": 2,
+    "frameTimeMs": 850.6,
+    "drawCalls": 500,
+    "visibleShips": 5,
+    "visiblePirates": 2,
+    "culledShips": 5,
+    "playerShipLOD": "LOD0 (Hero)",
+    "triangles": 23300,
+    "lodDistribution": {
+      "lod0": 2,
+      "lod1": 3,
+      "lod2": 0,
+      "lod3": 0,
+      "culled": 5
+    }
+  },
+  "tenShips": {
+    "fps": 2,
+    "frameTimeMs": 884,
+    "drawCalls": 629,
+    "visibleShips": 10,
+    "visiblePirates": 3,
+    "culledShips": 0,
+    "playerShipLOD": "LOD0 (Hero)",
+    "triangles": 27552,
+    "lodDistribution": {
+      "lod0": 2,
+      "lod1": 7,
+      "lod2": 1,
+      "lod3": 0,
+      "culled": 0
+    }
+  },
+  "port": {
+    "fps": 4,
+    "frameTimeMs": 300.4,
+    "drawCalls": 200,
+    "visibleShips": 10,
+    "visiblePirates": 3,
+    "culledShips": 0,
+    "playerShipLOD": "LOD0 (Hero)",
+    "triangles": 8994,
+    "lodDistribution": {
+      "lod0": 1,
+      "lod1": 0,
+      "lod2": 2,
+      "lod3": 7,
+      "culled": 0
+    }
+  },
+  "combat": {
+    "fps": 0,
+    "frameTimeMs": 4937.4,
+    "drawCalls": 649,
+    "visibleShips": 10,
+    "visiblePirates": 3,
+    "culledShips": 0,
+    "playerShipLOD": "LOD0 (Hero)",
+    "triangles": 26884,
+    "lodDistribution": {
+      "lod0": 3,
+      "lod1": 5,
+      "lod2": 2,
+      "lod3": 0,
+      "culled": 0
+    }
+  }
+}

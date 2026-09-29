@@ -1,0 +1,38 @@
+{
+  "testA_Optimized": {
+    "fps": 1,
+    "medianFrameTimeMs": 1084.1,
+    "drawCalls": 634,
+    "triangles": 27744,
+    "geometries": 596,
+    "activeShips": 10,
+    "visiblePirates": 3,
+    "visibleNPCs": 9,
+    "lodCounts": {
+      "lod0": 3,
+      "lod1": 6,
+      "lod2": 1,
+      "lod3": 0,
+      "culled": 0
+    },
+    "qualityTier": "HIGH"
+  },
+  "testB_Unoptimized": {
+    "fps": 2,
+    "medianFrameTimeMs": 667.3,
+    "drawCalls": 1140,
+    "triangles": 39804,
+    "geometries": 1194,
+    "activeShips": 10,
+    "visiblePirates": 3,
+    "visibleNPCs": 9,
+    "lodCounts": {
+      "lod0": 10,
+      "lod1": 0,
+      "lod2": 0,
+      "lod3": 0,
+      "culled": 0
+    },
+    "qualityTier": "ULTRA"
+  }
+}

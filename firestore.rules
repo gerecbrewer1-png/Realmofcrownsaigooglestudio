@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function for authentication
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Player profiles - Public read for authenticated users (rankings/scouting); client writes strictly disallowed
+    match /players/{playerId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Server-authoritative only
+    }
+
+    // Kingdoms - Public read for authenticated users (map scouting); client writes strictly disallowed
+    match /kingdoms/{kingdomId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Server-authoritative only
+      
+      // Subcollections
+      match /buildings/{buildingId} {
+        allow read: if isAuthenticated();
+        allow write: if false; // Server-authoritative only
+      }
+    }
+
+    // Inventory - Private read for owner only; client writes strictly disallowed
+    match /inventory/{playerId}/items/{itemId} {
+      allow read: if isOwner(playerId);
+      allow write: if false; // Server-authoritative only
+    }
+
+    // Quests - Private read for owner only; client writes strictly disallowed
+    match /quests/{playerId}/tasks/{questId} {
+      allow read: if isOwner(playerId);
+      allow write: if false; // Server-authoritative only
+    }
+
+    // Transactions - Private read for owner only; client writes strictly disallowed
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated() && resource.data.playerId == request.auth.uid;
+      allow write: if false; // Only server backend writes transactions
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

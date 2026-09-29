@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "playcanvas": {
+      "command": "cmd.exe",
+      "args": ["/c", "npx", "-y", "@playcanvas/editor-mcp-server"],
+      "env": {
+        "PLAYCANVAS_MCP_PORT": "52000"
+      }
+    }
+  }
+}

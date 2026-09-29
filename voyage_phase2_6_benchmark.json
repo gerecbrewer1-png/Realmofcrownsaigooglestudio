@@ -1,0 +1,287 @@
+{
+  "timestamp": "2026-09-24T20:43:13.493Z",
+  "benchmarkResults": {
+    "ships_1": {
+      "fps": 57,
+      "frameTimeMs": 17.6,
+      "worstFrameMs": 50.1,
+      "bestFrameMs": -15.4,
+      "drawCalls": 275,
+      "triangles": 16812,
+      "geometries": 596,
+      "textures": 21,
+      "activeShips": 1,
+      "totalShips": 10,
+      "visibleShips": 1,
+      "culledShips": 9,
+      "simTiers": {
+        "sim0": 0,
+        "sim1": 0,
+        "sim2": 0,
+        "sim3": 0,
+        "sim4": 9
+      },
+      "lodTiers": {
+        "lod0": 1,
+        "lod1": 0,
+        "lod2": 0,
+        "lod3": 0,
+        "culled": 9
+      },
+      "pirateStats": {
+        "total": 3,
+        "active": 3,
+        "visible": 0,
+        "culled": 3,
+        "sim0": 0
+      },
+      "aiUpdatesPerSec": 90,
+      "spatialGridEntities": 9,
+      "poolStats": {
+        "activeBalls": 0,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "reflectionStatus": "ON (1/2 Frames)",
+      "qualityTier": "HIGH"
+    },
+    "ships_10": {
+      "fps": 15,
+      "frameTimeMs": 68.6,
+      "worstFrameMs": 8356.7,
+      "bestFrameMs": -6.7,
+      "drawCalls": 713,
+      "triangles": 29454,
+      "geometries": 724,
+      "textures": 21,
+      "activeShips": 6,
+      "totalShips": 10,
+      "visibleShips": 6,
+      "culledShips": 4,
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 7,
+        "sim2": 0,
+        "sim3": 0,
+        "sim4": 0
+      },
+      "lodTiers": {
+        "lod0": 3,
+        "lod1": 2,
+        "lod2": 1,
+        "lod3": 0,
+        "culled": 4
+      },
+      "pirateStats": {
+        "total": 3,
+        "active": 3,
+        "visible": 2,
+        "culled": 1,
+        "sim0": 2
+      },
+      "aiUpdatesPerSec": 25,
+      "spatialGridEntities": 9,
+      "poolStats": {
+        "activeBalls": 0,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "reflectionStatus": "ON (1/2 Frames)",
+      "qualityTier": "HIGH"
+    },
+    "ships_25": {
+      "fps": 23,
+      "frameTimeMs": 42.7,
+      "worstFrameMs": 166.8,
+      "bestFrameMs": -59.1,
+      "drawCalls": 715,
+      "triangles": 29086,
+      "geometries": 914,
+      "textures": 24,
+      "activeShips": 9,
+      "totalShips": 25,
+      "visibleShips": 9,
+      "culledShips": 16,
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 7,
+        "sim2": 3,
+        "sim3": 12,
+        "sim4": 0
+      },
+      "lodTiers": {
+        "lod0": 3,
+        "lod1": 2,
+        "lod2": 1,
+        "lod3": 3,
+        "culled": 16
+      },
+      "pirateStats": {
+        "total": 6,
+        "active": 6,
+        "visible": 2,
+        "culled": 4,
+        "sim0": 2
+      },
+      "aiUpdatesPerSec": 8,
+      "spatialGridEntities": 24,
+      "poolStats": {
+        "activeBalls": 0,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "reflectionStatus": "ON (1/2 Frames)",
+      "qualityTier": "HIGH"
+    },
+    "ships_50": {
+      "fps": 15,
+      "frameTimeMs": 67.5,
+      "worstFrameMs": 83.5,
+      "bestFrameMs": -43.9,
+      "drawCalls": 763,
+      "triangles": 30220,
+      "geometries": 1032,
+      "textures": 24,
+      "activeShips": 11,
+      "totalShips": 50,
+      "visibleShips": 11,
+      "culledShips": 39,
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 6,
+        "sim2": 4,
+        "sim3": 37,
+        "sim4": 0
+      },
+      "lodTiers": {
+        "lod0": 3,
+        "lod1": 3,
+        "lod2": 0,
+        "lod3": 5,
+        "culled": 39
+      },
+      "pirateStats": {
+        "total": 11,
+        "active": 11,
+        "visible": 2,
+        "culled": 9,
+        "sim0": 2
+      },
+      "aiUpdatesPerSec": 153,
+      "spatialGridEntities": 49,
+      "poolStats": {
+        "activeBalls": 0,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "reflectionStatus": "ON (1/2 Frames)",
+      "qualityTier": "HIGH"
+    },
+    "ships_100": {
+      "fps": 25,
+      "frameTimeMs": 40.7,
+      "worstFrameMs": 83.4,
+      "bestFrameMs": -2.3,
+      "drawCalls": 677,
+      "triangles": 28060,
+      "geometries": 1033,
+      "textures": 24,
+      "activeShips": 11,
+      "totalShips": 100,
+      "visibleShips": 11,
+      "culledShips": 89,
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 6,
+        "sim2": 3,
+        "sim3": 53,
+        "sim4": 35
+      },
+      "lodTiers": {
+        "lod0": 3,
+        "lod1": 3,
+        "lod2": 0,
+        "lod3": 5,
+        "culled": 89
+      },
+      "pirateStats": {
+        "total": 21,
+        "active": 21,
+        "visible": 2,
+        "culled": 19,
+        "sim0": 2
+      },
+      "aiUpdatesPerSec": 134,
+      "spatialGridEntities": 99,
+      "poolStats": {
+        "activeBalls": 3,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "reflectionStatus": "ON (1/2 Frames)",
+      "qualityTier": "HIGH"
+    },
+    "ships_250": {
+      "fps": 11,
+      "frameTimeMs": 90.4,
+      "worstFrameMs": 83.3,
+      "bestFrameMs": -8.8,
+      "drawCalls": 537,
+      "triangles": 24360,
+      "geometries": 1033,
+      "textures": 24,
+      "activeShips": 11,
+      "totalShips": 250,
+      "visibleShips": 11,
+      "culledShips": 239,
+      "simTiers": {
+        "sim0": 2,
+        "sim1": 6,
+        "sim2": 4,
+        "sim3": 52,
+        "sim4": 185
+      },
+      "lodTiers": {
+        "lod0": 3,
+        "lod1": 3,
+        "lod2": 0,
+        "lod3": 5,
+        "culled": 239
+      },
+      "pirateStats": {
+        "total": 51,
+        "active": 51,
+        "visible": 2,
+        "culled": 49,
+        "sim0": 2
+      },
+      "aiUpdatesPerSec": 167,
+      "spatialGridEntities": 249,
+      "poolStats": {
+        "activeBalls": 3,
+        "totalBallsInPool": 90,
+        "activeParticles": 0,
+        "totalParticlesInPool": 180
+      },
+      "reflectionStatus": "ON (1/2 Frames)",
+      "qualityTier": "HIGH"
+    }
+  },
+  "reflectionProfiling": {
+    "drawCallsEveryFrame": 562,
+    "drawCallsEvery2Frames": 570,
+    "drawCallsDisabled": 565,
+    "mirrorAppearancePreserved": true
+  },
+  "zeroAllocationPool": {
+    "activeBalls": 8,
+    "totalBallsInPool": 90,
+    "activeParticles": 8,
+    "totalParticlesInPool": 180
+  }
+}

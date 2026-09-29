@@ -1,0 +1,32 @@
+{
+  "oneShip": {
+    "fps": 61,
+    "medianFrameTimeMs": 16.7,
+    "drawCalls": 0,
+    "triangles": 0,
+    "geometries": 0,
+    "textures": 0,
+    "activeShips": 0,
+    "lodCounts": {}
+  },
+  "fiveShips": {
+    "fps": 61,
+    "medianFrameTimeMs": 16.7,
+    "drawCalls": 0,
+    "triangles": 0,
+    "geometries": 0,
+    "textures": 0,
+    "activeShips": 0,
+    "lodCounts": {}
+  },
+  "tenShips": {
+    "fps": 61,
+    "medianFrameTimeMs": 16.7,
+    "drawCalls": 0,
+    "triangles": 0,
+    "geometries": 0,
+    "textures": 0,
+    "activeShips": 0,
+    "lodCounts": {}
+  }
+}

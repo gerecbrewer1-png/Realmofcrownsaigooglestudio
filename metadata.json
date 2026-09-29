@@ -1,0 +1,6 @@
+{
+  "name": "Realm of Crowns: Medieval MMO Strategy",
+  "description": "An original persistent multiplayer medieval kingdom MMO strategy game featuring kingdom building, resource management, military training, and hero progression.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

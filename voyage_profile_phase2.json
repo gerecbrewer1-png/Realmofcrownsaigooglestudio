@@ -1,0 +1,50 @@
+{
+  "oneShip": {
+    "fps": 2,
+    "medianFrameTimeMs": 717.2,
+    "drawCalls": 282,
+    "triangles": 17580,
+    "geometries": 547,
+    "textures": 20,
+    "activeShips": 1,
+    "lodCounts": {
+      "lod0": 1,
+      "lod1": 0,
+      "lod2": 0,
+      "lod3": 0,
+      "culled": 9
+    }
+  },
+  "fiveShips": {
+    "fps": 1,
+    "medianFrameTimeMs": 733.9,
+    "drawCalls": 305,
+    "triangles": 18636,
+    "geometries": 547,
+    "textures": 20,
+    "activeShips": 3,
+    "lodCounts": {
+      "lod0": 1,
+      "lod1": 0,
+      "lod2": 2,
+      "lod3": 0,
+      "culled": 7
+    }
+  },
+  "tenShips": {
+    "fps": 2,
+    "medianFrameTimeMs": 750.6,
+    "drawCalls": 332,
+    "triangles": 20076,
+    "geometries": 548,
+    "textures": 20,
+    "activeShips": 6,
+    "lodCounts": {
+      "lod0": 1,
+      "lod1": 0,
+      "lod2": 4,
+      "lod3": 1,
+      "culled": 4
+    }
+  }
+}
