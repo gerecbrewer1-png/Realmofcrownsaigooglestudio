@@ -42,6 +42,8 @@ import { soundEngine } from './audio/soundEngine';
 import { shortcutManager } from './game/input/shortcutManager';
 import { InputAction } from './game/input/inputTypes';
 
+import { PerformanceOverlay } from './performance/PerformanceOverlay';
+
 export default function App() {
   const [player, setPlayer] = useState<PlayerProfile | null>(null);
   const [kingdom, setKingdom] = useState<KingdomState | null>(null);
