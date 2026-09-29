@@ -20,6 +20,7 @@ export class PlayCanvasAnimal {
   private hitFlashTimer = 0;
   public isDead = false;
   private primaryMaterial!: pc.StandardMaterial;
+  private wasMoving = false;
 
   constructor(app: pc.Application, id: string, type: AnimalType) {
     this.app = app;
@@ -99,7 +100,7 @@ export class PlayCanvasAnimal {
     ];
     for (let i = 0; i < 4; i++) {
       const leg = new pc.Entity(`Leg_${i}`);
-      leg.addComponent('render', { type: 'cylinder', material: fawnMat });
+      leg.addComponent('render', { type: 'cylinder', material: fawnMat, castShadows: false });
       leg.setLocalScale(0.1, 0.65, 0.1);
       leg.setLocalPosition(legOffsets[i].x, 0.35, legOffsets[i].z);
       this.root.addChild(leg);
@@ -159,7 +160,7 @@ export class PlayCanvasAnimal {
     ];
     for (let i = 0; i < 4; i++) {
       const leg = new pc.Entity(`BoarLeg_${i}`);
-      leg.addComponent('render', { type: 'cylinder', material: bristleMat });
+      leg.addComponent('render', { type: 'cylinder', material: bristleMat, castShadows: false });
       leg.setLocalScale(0.14, 0.35, 0.14);
       leg.setLocalPosition(legOffsets[i].x, 0.18, legOffsets[i].z);
       this.root.addChild(leg);
@@ -246,7 +247,7 @@ export class PlayCanvasAnimal {
     ];
     for (let i = 0; i < 4; i++) {
       const leg = new pc.Entity(`WolfLeg_${i}`);
-      leg.addComponent('render', { type: 'cylinder', material: peltMat });
+      leg.addComponent('render', { type: 'cylinder', material: peltMat, castShadows: false });
       leg.setLocalScale(0.11, 0.55, 0.11);
       leg.setLocalPosition(legOffsets[i].x, 0.28, legOffsets[i].z);
       this.root.addChild(leg);
@@ -328,8 +329,9 @@ export class PlayCanvasAnimal {
       }
     }
 
-    // 3. Locomotion leg swing
+    // 3. Locomotion leg swing (guarded against redundant idle transform recalculation)
     if (isMoving) {
+      this.wasMoving = true;
       this.walkCycleTimer += delta * 9.0;
       const swing = Math.sin(this.walkCycleTimer) * 22;
       if (this.legGroup.length === 4) {
@@ -338,7 +340,9 @@ export class PlayCanvasAnimal {
         this.legGroup[2].setLocalEulerAngles(-swing, 0, 0);
         this.legGroup[3].setLocalEulerAngles(swing, 0, 0);
       }
-    } else if (this.legGroup.length === 4) {
+    } else if (this.wasMoving && this.legGroup.length === 4) {
+      this.wasMoving = false;
+      this.walkCycleTimer = 0;
       for (const leg of this.legGroup) {
         leg.setLocalEulerAngles(0, 0, 0);
       }

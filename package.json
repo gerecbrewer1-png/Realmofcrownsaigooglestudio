@@ -10,7 +10,7 @@
     "server": "tsx server.ts",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "test": "tsx test/securityAndAuthoritativeTests.ts && tsx test/test_adaptive_controls.ts && tsx test/test_graphics_gameplay_enhancements.ts && tsx test/test_phase2_6_simulation_lod.ts && tsx test/test_phase2_7_mmo_aoi.ts && tsx test/test_phase2_8_realtime_transport.ts && tsx test/test_phase2_9_authentication.ts && tsx test/test_phase2_9_voyage_authority_audit.ts"
+    "test": "tsx test/securityAndAuthoritativeTests.ts && tsx test/test_adaptive_controls.ts && tsx test/test_graphics_gameplay_enhancements.ts && tsx test/test_phase2_6_simulation_lod.ts && tsx test/test_phase2_7_mmo_aoi.ts && tsx test/test_phase2_8_realtime_transport.ts && tsx test/test_phase2_9_authentication.ts && tsx test/test_phase2_9_voyage_authority_audit.ts && tsx test/test_voyage_collision.ts && tsx test/test_rahr_phase2.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

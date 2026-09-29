@@ -97,10 +97,10 @@ export class TacticalSceneBuilder {
       sceneRoot.addChild(ground);
     }
 
-    // 2. Cobblestone Roads & Plazas
+    // 2. Cobblestone Roads & Plazas (castShadows disabled on flat ground planes)
     // Main South-North Road (from drawbridge z=45 to Keep entrance z=-12)
     const mainRoad = new pc.Entity('MainRoad');
-    mainRoad.addComponent('render', { type: 'plane', material: pathMat });
+    mainRoad.addComponent('render', { type: 'plane', material: pathMat, castShadows: false });
     mainRoad.setLocalScale(6.5, 1, 56);
     mainRoad.setLocalPosition(0, 0.02, 16);
     sceneRoot.addChild(mainRoad);
@@ -108,7 +108,7 @@ export class TacticalSceneBuilder {
 
     // Cross East-West Road
     const crossRoad = new pc.Entity('CrossRoad');
-    crossRoad.addComponent('render', { type: 'plane', material: pathMat });
+    crossRoad.addComponent('render', { type: 'plane', material: pathMat, castShadows: false });
     crossRoad.setLocalScale(46, 1, 5.5);
     crossRoad.setLocalPosition(0, 0.025, 0);
     sceneRoot.addChild(crossRoad);
@@ -116,7 +116,7 @@ export class TacticalSceneBuilder {
 
     // Central Village Plaza (Hexagonal / Circular)
     const plaza = new pc.Entity('PlazaCenter');
-    plaza.addComponent('render', { type: 'cylinder', material: pathMat });
+    plaza.addComponent('render', { type: 'cylinder', material: pathMat, castShadows: false });
     plaza.setLocalScale(16, 0.04, 16);
     plaza.setLocalPosition(0, 0.03, 0);
     sceneRoot.addChild(plaza);

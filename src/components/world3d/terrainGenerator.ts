@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { WorldTile, WorldTerrainType } from '../../types';
 import { worldTerrainAssetService, WORLD_HEX_SCALE } from './worldTerrainAssetService';
+import { getLushMeadowTexture, getWaterRipplesTexture } from './medievalTextures';
 
 export const HEX_SIZE = 24;
 export const HEX_WIDTH = Math.sqrt(3) * HEX_SIZE;
@@ -37,12 +38,12 @@ function axialRound(q: number, r: number): { q: number; r: number } {
 }
 
 export function getTerrainHeight(terrain: WorldTerrainType, q: number, r: number): number {
-  if (terrain === 'water') return 0.2;
+  if (terrain === 'water') return 0.35;
   if (terrain === 'forest') return 2.4;
   if (terrain === 'mountains') return 5.2;
-  // Plains with gentle rolling elevation
+  // Plains with gentle rolling elevation (2.0 to 2.6)
   const noise = Math.sin(q * 0.4 + r * 0.6) * 0.35 + Math.cos(q * 0.7 - r * 0.3) * 0.25;
-  return 2.0 + noise;
+  return 2.1 + noise;
 }
 
 export interface TerrainMeshBundle {
@@ -54,6 +55,7 @@ export interface TerrainMeshBundle {
   updateAnimation: (time: number) => void;
   setLOD: (zoomTier: 'city' | 'region' | 'world') => void;
   updateCameraTarget?: (camTarget: THREE.Vector3, zoomTier: 'city' | 'region' | 'world') => void;
+  dispose?: () => void;
 }
 
 // Deterministic hash for consistent visual placement
@@ -87,11 +89,84 @@ function createPointyHexPrismGeometry(radius: number, depth: number): THREE.Buff
   return geom;
 }
 
+// -----------------------------------------------------------------------------
+// CONSOLIDATED SHARED GEOMETRIES & MATERIALS (Zero-duplication singleton cache)
+// -----------------------------------------------------------------------------
+let _sharedLandHexGeo: THREE.BufferGeometry | null = null;
+let _sharedWaterHexGeo: THREE.BufferGeometry | null = null;
+let _sharedColliderGeo: THREE.BufferGeometry | null = null;
+
+let _sharedLandMaterial: THREE.MeshStandardMaterial | null = null;
+let _sharedWaterMaterial: THREE.MeshStandardMaterial | null = null;
+let _sharedColliderMaterial: THREE.MeshBasicMaterial | null = null;
+
+function getSharedLandHexGeo(): THREE.BufferGeometry {
+  if (!_sharedLandHexGeo) {
+    // 1.004 scale guarantees tight interlocking without gaps or black cracks
+    _sharedLandHexGeo = createPointyHexPrismGeometry(HEX_SIZE * 1.004, 16);
+  }
+  return _sharedLandHexGeo;
+}
+
+function getSharedWaterHexGeo(): THREE.BufferGeometry {
+  if (!_sharedWaterHexGeo) {
+    // 0.998 scale fits snugly against land cliff embankments without z-fighting
+    _sharedWaterHexGeo = createPointyHexPrismGeometry(HEX_SIZE * 0.998, 4);
+  }
+  return _sharedWaterHexGeo;
+}
+
+function getSharedColliderGeo(): THREE.BufferGeometry {
+  if (!_sharedColliderGeo) {
+    _sharedColliderGeo = new THREE.CylinderGeometry(HEX_SIZE * 0.96, HEX_SIZE * 0.96, 4, 6);
+  }
+  return _sharedColliderGeo;
+}
+
+function getSharedLandMaterial(): THREE.MeshStandardMaterial {
+  if (!_sharedLandMaterial) {
+    const meadowTex = getLushMeadowTexture();
+    _sharedLandMaterial = new THREE.MeshStandardMaterial({
+      map: meadowTex,
+      roughness: 0.82,
+      metalness: 0.04,
+      flatShading: false,
+    });
+  }
+  return _sharedLandMaterial;
+}
+
+function getSharedWaterMaterial(): THREE.MeshStandardMaterial {
+  if (!_sharedWaterMaterial) {
+    const waterTex = getWaterRipplesTexture();
+    _sharedWaterMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0c68a4,
+      map: waterTex,
+      roughness: 0.14,
+      metalness: 0.32,
+      transparent: true,
+      opacity: 0.94,
+    });
+  }
+  return _sharedWaterMaterial;
+}
+
+function getSharedColliderMaterial(): THREE.MeshBasicMaterial {
+  if (!_sharedColliderMaterial) {
+    _sharedColliderMaterial = new THREE.MeshBasicMaterial({ visible: false });
+  }
+  return _sharedColliderMaterial;
+}
+
 interface ChunkData {
   chunkKey: string;
+  chunkQ: number;
+  chunkR: number;
   centerX: number;
   centerZ: number;
   group: THREE.Group;
+  landMesh: THREE.InstancedMesh | null;
+  waterMesh: THREE.InstancedMesh | null;
   treesGroup: THREE.Group;
   mountainsGroup: THREE.Group;
   propsGroup: THREE.Group;
@@ -99,9 +174,10 @@ interface ChunkData {
 
 /**
  * Creates the high-performance World Map terrain with:
- * 1. Single-draw-call continuous green medieval landmass (pointy-topped hex bedrock)
- * 2. Spatial chunking for environmental 3D models (trees, mountains, props)
- * 3. Dynamic camera distance-based visibility & zoom LOD
+ * 1. Chunked rendering using Three.js InstancedMesh for ALL terrain hexes
+ * 2. Consolidated shared geometries and textures to reduce draw calls and memory usage
+ * 3. Continuous green landmass clearly elevated and distinct from shimmering ocean water
+ * 4. Fast spatial chunk frustum culling and distance LOD
  */
 export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
   const group = new THREE.Group();
@@ -113,9 +189,14 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
   const roadsGroup = new THREE.Group();
   roadsGroup.name = 'asset-roads-group';
 
-  // Shared geometry for raycasting colliders (invisible, 0 draw calls)
-  const colliderGeo = new THREE.CylinderGeometry(HEX_SIZE * 0.98, HEX_SIZE * 0.98, 4, 6);
-  const colliderMat = new THREE.MeshBasicMaterial({ visible: false });
+  // Consolidated geometries and materials
+  const landGeo = getSharedLandHexGeo();
+  const waterGeo = getSharedWaterHexGeo();
+  const colliderGeo = getSharedColliderGeo();
+
+  const landMat = getSharedLandMaterial();
+  const waterMat = getSharedWaterMaterial();
+  const colliderMat = getSharedColliderMaterial();
 
   // 1. Build Interaction & Raycast Colliders
   tiles.forEach((tile) => {
@@ -144,7 +225,7 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
   tiles.forEach((tile) => {
     if (tile.entityType !== 'empty' && !(tile.coords.q === 0 && tile.coords.r === 0)) {
       const dist = Math.hypot(tile.coords.q, tile.coords.r);
-      if (dist > 0 && dist <= 4.5) {
+      if (dist > 0 && dist <= 5.0) {
         const steps = Math.max(1, Math.round(dist));
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
@@ -156,57 +237,14 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
     }
   });
 
-  // 3. BASE SUBTERRANEAN BEDROCK FOUNDATION (1 Draw Call for 1,500+ hexes)
-  // Sits directly beneath the 3D surface tiles to prevent any void exposure at steep angles.
-  const baseGeo = createPointyHexPrismGeometry(HEX_SIZE * 1.01, 16);
-  const baseMat = new THREE.MeshStandardMaterial({
-    roughness: 0.90,
-    metalness: 0.02,
-    flatShading: true,
-  });
-  const baseTerrainInst = new THREE.InstancedMesh(baseGeo, baseMat, tiles.length);
-  baseTerrainInst.name = 'base-hex-bedrock-foundation';
-  baseTerrainInst.frustumCulled = false;
-  baseTerrainInst.receiveShadow = true;
-
-  const tempDummy = new THREE.Object3D();
-  const tempColor = new THREE.Color();
-
-  tiles.forEach((tile, idx) => {
-    const { q, r } = tile.coords;
-    const { x, z } = hexToWorldCoords(q, r);
-    const height = getTerrainHeight(tile.terrain, q, r);
-
-    tempDummy.position.set(x, height - 0.2, z);
-    tempDummy.rotation.set(0, 0, 0);
-    tempDummy.scale.set(1, 1, 1);
-    tempDummy.updateMatrix();
-    baseTerrainInst.setMatrixAt(idx, tempDummy.matrix);
-
-    if (tile.terrain === 'water') {
-      tempColor.setHex(0x0c4a6e); // Submerged aquatic ocean trench
-    } else if (tile.terrain === 'forest') {
-      tempColor.setHex(0x235a29); // Deep lush woodland green
-    } else if (tile.terrain === 'mountains') {
-      tempColor.setHex(0x64748b); // Alpine granite peak slate
-    } else {
-      tempColor.setHex(0x4d9043); // Vivid rolling meadow grass
-    }
-    baseTerrainInst.setColorAt(idx, tempColor);
-  });
-
-  baseTerrainInst.instanceMatrix.needsUpdate = true;
-  if (baseTerrainInst.instanceColor) {
-    baseTerrainInst.instanceColor.needsUpdate = true;
-  }
-  group.add(baseTerrainInst);
-
-  // 4. SPATIAL CHUNKING ARCHITECTURE FOR 3D ENVIRONMENT DETAILS
-  // Partition world into 8x8 axial hex chunks (~190 unit radius per chunk).
-  // Chunks enable fast frustum culling and distance-based LOD without per-frame allocations.
-  const CHUNK_SIZE = 8;
+  // 3. SPATIAL CHUNKING ARCHITECTURE FOR ALL TERRAIN HEXES
+  // Group tiles into axial chunks (CHUNK_SIZE = 6, ~140 unit radius per chunk).
+  // Each chunk manages its own InstancedMesh for land and water hexes with frustum culling.
+  const CHUNK_SIZE = 6;
   const chunksMap = new Map<string, {
     chunkKey: string;
+    chunkQ: number;
+    chunkR: number;
     tiles: WorldTile[];
     sumX: number;
     sumZ: number;
@@ -214,14 +252,14 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
 
   tiles.forEach((tile) => {
     const { q, r } = tile.coords;
-    const chunkQ = Math.floor((q + 32) / CHUNK_SIZE);
-    const chunkR = Math.floor((r + 32) / CHUNK_SIZE);
-    const key = `${chunkQ},${chunkR}`;
+    const chunkQ = Math.floor(q / CHUNK_SIZE);
+    const chunkR = Math.floor(r / CHUNK_SIZE);
+    const key = `${chunkQ}_${chunkR}`;
 
     const { x, z } = hexToWorldCoords(q, r);
     let chunk = chunksMap.get(key);
     if (!chunk) {
-      chunk = { chunkKey: key, tiles: [], sumX: 0, sumZ: 0 };
+      chunk = { chunkKey: key, chunkQ, chunkR, tiles: [], sumX: 0, sumZ: 0 };
       chunksMap.set(key, chunk);
     }
     chunk.tiles.push(tile);
@@ -231,104 +269,148 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
 
   const activeChunks: ChunkData[] = [];
   const dummy = new THREE.Object3D();
+  const tempColor = new THREE.Color();
   const S = WORLD_HEX_SCALE;
   let visualsPopulated = false;
 
-  // Inland water sheen instanced mesh
-  let activeWaterInst: THREE.InstancedMesh | null = null;
+  // Build each chunk's terrain hex InstancedMeshes
+  chunksMap.forEach((chunkDef) => {
+    const count = chunkDef.tiles.length;
+    if (count === 0) return;
 
+    const centerX = chunkDef.sumX / count;
+    const centerZ = chunkDef.sumZ / count;
+
+    const chunkGroup = new THREE.Group();
+    chunkGroup.name = `chunk-${chunkDef.chunkKey}`;
+
+    const landTiles = chunkDef.tiles.filter((t) => t.terrain !== 'water');
+    const waterTiles = chunkDef.tiles.filter((t) => t.terrain === 'water');
+
+    let landMesh: THREE.InstancedMesh | null = null;
+    let waterMesh: THREE.InstancedMesh | null = null;
+
+    // A. Chunk Land Hexes InstancedMesh (Continuous Green Landmass)
+    if (landTiles.length > 0) {
+      landMesh = new THREE.InstancedMesh(landGeo, landMat, landTiles.length);
+      landMesh.name = `chunk-${chunkDef.chunkKey}-land`;
+      landMesh.receiveShadow = true;
+      landMesh.castShadow = false;
+
+      landTiles.forEach((tile, idx) => {
+        const { q, r } = tile.coords;
+        const { x, z } = hexToWorldCoords(q, r);
+        const height = getTerrainHeight(tile.terrain, q, r);
+
+        dummy.position.set(x, height, z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        landMesh!.setMatrixAt(idx, dummy.matrix);
+
+        // Biome and road tinting
+        if (roadHexKeys.has(`${q},${r}`)) {
+          // Warm cobblestone trade road path
+          tempColor.setHex(0xb59e7a);
+        } else if (tile.terrain === 'forest') {
+          // Deep ancient woodland green
+          tempColor.setHex(0x27632a);
+        } else if (tile.terrain === 'mountains') {
+          // Granite alpine crag slate
+          tempColor.setHex(0x6c7d91);
+        } else {
+          // Continuous lush rolling meadow green (with subtle natural variation)
+          const varSeed = hashCoords(q, r, 3);
+          if (varSeed < 0.35) {
+            tempColor.setHex(0x48a03c);
+          } else if (varSeed < 0.70) {
+            tempColor.setHex(0x52b045);
+          } else {
+            tempColor.setHex(0x3e8e34);
+          }
+        }
+        landMesh!.setColorAt(idx, tempColor);
+      });
+
+      landMesh.instanceMatrix.needsUpdate = true;
+      if (landMesh.instanceColor) {
+        landMesh.instanceColor.needsUpdate = true;
+      }
+      landMesh.computeBoundingSphere();
+      landMesh.computeBoundingBox();
+      landMesh.frustumCulled = true;
+      chunkGroup.add(landMesh);
+    }
+
+    // B. Chunk Water Hexes InstancedMesh (Distinct Deep Shimmering Ocean)
+    if (waterTiles.length > 0) {
+      waterMesh = new THREE.InstancedMesh(waterGeo, waterMat, waterTiles.length);
+      waterMesh.name = `chunk-${chunkDef.chunkKey}-water`;
+      waterMesh.receiveShadow = true;
+      waterMesh.castShadow = false;
+
+      waterTiles.forEach((tile, idx) => {
+        const { q, r } = tile.coords;
+        const { x, z } = hexToWorldCoords(q, r);
+
+        dummy.position.set(x, 0.35, z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        waterMesh!.setMatrixAt(idx, dummy.matrix);
+
+        tempColor.setHex(0x0a5b8e); // Deep shimmering royal ocean blue
+        waterMesh!.setColorAt(idx, tempColor);
+      });
+
+      waterMesh.instanceMatrix.needsUpdate = true;
+      if (waterMesh.instanceColor) {
+        waterMesh.instanceColor.needsUpdate = true;
+      }
+      waterMesh.computeBoundingSphere();
+      waterMesh.computeBoundingBox();
+      waterMesh.frustumCulled = true;
+      chunkGroup.add(waterMesh);
+    }
+
+    // C. Environmental Detail Groups for Nature Assets (Trees, Mountains, Props)
+    const treesGroup = new THREE.Group();
+    treesGroup.name = `chunk-${chunkDef.chunkKey}-trees`;
+    const mountainsGroup = new THREE.Group();
+    mountainsGroup.name = `chunk-${chunkDef.chunkKey}-mountains`;
+    const propsGroup = new THREE.Group();
+    propsGroup.name = `chunk-${chunkDef.chunkKey}-props`;
+
+    chunkGroup.add(treesGroup);
+    chunkGroup.add(mountainsGroup);
+    chunkGroup.add(propsGroup);
+
+    group.add(chunkGroup);
+
+    activeChunks.push({
+      chunkKey: chunkDef.chunkKey,
+      chunkQ: chunkDef.chunkQ,
+      chunkR: chunkDef.chunkR,
+      centerX,
+      centerZ,
+      group: chunkGroup,
+      landMesh,
+      waterMesh,
+      treesGroup,
+      mountainsGroup,
+      propsGroup,
+    });
+  });
+
+  // Populate 3D Nature & Topography environmental models per chunk
   const populateVisuals = () => {
-    console.log('[terrainGenerator] populateVisuals called. visualsPopulated:', visualsPopulated, 'isReady:', worldTerrainAssetService.isReady());
     if (visualsPopulated) return;
     if (!worldTerrainAssetService.isReady()) return;
 
-    // A. Real 3D KayKit Medieval Hexagon Land Tiles (hex_grass.glb)
-    const landTiles = tiles.filter((t) => t.terrain !== 'water');
-    if (landTiles.length > 0) {
-      const grassInst = worldTerrainAssetService.createInstancedMesh('hex_grass', landTiles.length);
-      if (grassInst) {
-        landTiles.forEach((tile, idx) => {
-          const { q, r } = tile.coords;
-          const { x, z } = hexToWorldCoords(q, r);
-          const height = getTerrainHeight(tile.terrain, q, r);
-          const seed = hashCoords(q, r, 7);
-          const hexRot = Math.floor(seed * 6) * (Math.PI / 3);
+    activeChunks.forEach((chunk) => {
+      const chunkDef = chunksMap.get(chunk.chunkKey);
+      if (!chunkDef) return;
 
-          dummy.position.set(x, height, z);
-          dummy.rotation.set(0, hexRot, 0);
-          dummy.scale.set(S, S, S);
-          dummy.updateMatrix();
-          grassInst.setMatrixAt(idx, dummy.matrix);
-        });
-        grassInst.instanceMatrix.needsUpdate = true;
-        grassInst.computeBoundingSphere();
-        group.add(grassInst);
-      }
-    }
-
-    // B. Real 3D Paved Trade Roads (hex_road_straight.glb)
-    const roadTiles = tiles.filter((t) => roadHexKeys.has(`${t.coords.q},${t.coords.r}`) && t.terrain !== 'water');
-    if (roadTiles.length > 0) {
-      const roadInst = worldTerrainAssetService.createInstancedMesh('hex_road_straight', roadTiles.length);
-      if (roadInst) {
-        roadTiles.forEach((tile, idx) => {
-          const { q, r } = tile.coords;
-          const { x, z } = hexToWorldCoords(q, r);
-          const height = getTerrainHeight(tile.terrain, q, r);
-          const angleToCenter = Math.atan2(-x, -z);
-          const snappedRot = Math.round(angleToCenter / (Math.PI / 3)) * (Math.PI / 3);
-
-          dummy.position.set(x, height + 0.06, z);
-          dummy.rotation.set(0, snappedRot, 0);
-          dummy.scale.set(S * 1.002, S * 1.002, S * 1.002);
-          dummy.updateMatrix();
-          roadInst.setMatrixAt(idx, dummy.matrix);
-        });
-        roadInst.instanceMatrix.needsUpdate = true;
-        roadInst.computeBoundingSphere();
-        group.add(roadInst);
-      }
-    }
-
-    // C. Real 3D Inland Water Surface (hex_water.glb)
-    const waterTiles = tiles.filter((t) => t.terrain === 'water');
-    if (waterTiles.length > 0) {
-      const waterInst = worldTerrainAssetService.createInstancedMesh('hex_water', waterTiles.length);
-      if (waterInst) {
-        waterTiles.forEach((tile, idx) => {
-          const { x, z } = hexToWorldCoords(tile.coords.q, tile.coords.r);
-          dummy.position.set(x, 0.35, z);
-          dummy.rotation.set(0, 0, 0);
-          dummy.scale.set(S, S, S);
-          dummy.updateMatrix();
-          waterInst.setMatrixAt(idx, dummy.matrix);
-        });
-        waterInst.instanceMatrix.needsUpdate = true;
-        waterInst.computeBoundingSphere();
-        group.add(waterInst);
-        activeWaterInst = waterInst;
-      }
-    }
-
-    // D. Build Chunks with Rich Instanced Environment Assets
-    chunksMap.forEach((chunkDef) => {
-      const count = chunkDef.tiles.length;
-      if (count === 0) return;
-
-      const centerX = chunkDef.sumX / count;
-      const centerZ = chunkDef.sumZ / count;
-
-      const chunkGroup = new THREE.Group();
-      chunkGroup.name = `chunk-${chunkDef.chunkKey}`;
-
-      const treesGroup = new THREE.Group();
-      treesGroup.name = `chunk-${chunkDef.chunkKey}-trees`;
-      const mountainsGroup = new THREE.Group();
-      mountainsGroup.name = `chunk-${chunkDef.chunkKey}-mountains`;
-      const propsGroup = new THREE.Group();
-      propsGroup.name = `chunk-${chunkDef.chunkKey}-props`;
-
-      // Collect environmental placements for this chunk
       const treeLargeItems: { x: number; y: number; z: number; rotY: number; s: number }[] = [];
       const treeMedItems: { x: number; y: number; z: number; rotY: number; s: number }[] = [];
       const treeSmallItems: { x: number; y: number; z: number; rotY: number; s: number }[] = [];
@@ -347,7 +429,7 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
         const { x, z } = hexToWorldCoords(q, r);
         const height = getTerrainHeight(tile.terrain, q, r);
 
-        // 1. Forest Woodlands (Dense, continuous medieval forest canopies)
+        // Forest Woodlands
         if (tile.terrain === 'forest') {
           const fSeed = hashCoords(q, r, 5);
           const fRot = Math.floor(hashCoords(q, r, 6) * 6) * (Math.PI / 3);
@@ -363,8 +445,7 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
             singleTreeItems.push({ x, y: height, z, rotY: fRot, s: fScale });
           }
         }
-
-        // 2. Mountain Ranges & Alpine Peaks (Majestic contiguous mountain chains)
+        // Mountain Ranges
         else if (tile.terrain === 'mountains') {
           const mSeed = hashCoords(q, r, 2);
           const mRot = Math.floor(hashCoords(q, r, 3) * 6) * (Math.PI / 3);
@@ -380,23 +461,22 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
             hillItems.push({ x, y: height, z, rotY: mRot, s: mScale });
           }
         }
-
-        // 3. Plains Countryside (Rolling knolls, wildflowers, outcroppings & sentinel trees)
+        // Rolling Plains Countryside
         else if (tile.terrain === 'plains' && tile.entityType === 'empty') {
           if (!roadHexKeys.has(`${q},${r}`)) {
             const pSeed = hashCoords(q, r, 8);
-            if (pSeed < 0.14) {
+            if (pSeed < 0.12) {
               hillItems.push({ x, y: height, z, rotY: Math.floor(pSeed * 6) * (Math.PI / 3), s: 1.0 });
-            } else if (pSeed >= 0.14 && pSeed < 0.22) {
+            } else if (pSeed >= 0.12 && pSeed < 0.20) {
               const rRot = hashCoords(q, r, 9) * Math.PI * 2;
               const ox = (hashCoords(q, r, 10) - 0.5) * 6;
               const oz = (hashCoords(q, r, 11) - 0.5) * 6;
-              if (pSeed < 0.18) {
+              if (pSeed < 0.16) {
                 propItemsA.push({ x: x + ox, y: height, z: z + oz, rotY: rRot, s: 1.1 });
               } else {
                 propItemsB.push({ x: x + ox, y: height, z: z + oz, rotY: rRot, s: 1.1 });
               }
-            } else if (pSeed >= 0.22 && pSeed < 0.28) {
+            } else if (pSeed >= 0.20 && pSeed < 0.26) {
               singleTreeItems.push({
                 x: x + (hashCoords(q, r, 12) - 0.5) * 6,
                 y: height,
@@ -409,7 +489,6 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
         }
       });
 
-      // Helper to instantiate chunk mesh with tight bounding sphere
       const createChunkInstMesh = (
         assetKey: string,
         items: { x: number; y: number; z: number; rotY: number; s: number }[],
@@ -430,38 +509,22 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
 
         inst.instanceMatrix.needsUpdate = true;
         inst.computeBoundingSphere();
-        inst.frustumCulled = false;
+        inst.frustumCulled = true;
         targetParent.add(inst);
       };
 
-      // Populate chunk nature and topography groups
-      createChunkInstMesh('trees_large', treeLargeItems, treesGroup);
-      createChunkInstMesh('trees_medium', treeMedItems, treesGroup);
-      createChunkInstMesh('trees_small', treeSmallItems, treesGroup);
-      createChunkInstMesh('tree_single_A', singleTreeItems, treesGroup);
+      createChunkInstMesh('trees_large', treeLargeItems, chunk.treesGroup);
+      createChunkInstMesh('trees_medium', treeMedItems, chunk.treesGroup);
+      createChunkInstMesh('trees_small', treeSmallItems, chunk.treesGroup);
+      createChunkInstMesh('tree_single_A', singleTreeItems, chunk.treesGroup);
 
-      createChunkInstMesh('mountain_A', mountainItemsA, mountainsGroup);
-      createChunkInstMesh('mountain_B', mountainItemsB, mountainsGroup);
-      createChunkInstMesh('mountain_C', mountainItemsC, mountainsGroup);
-      createChunkInstMesh('hills_A', hillItems, mountainsGroup);
+      createChunkInstMesh('mountain_A', mountainItemsA, chunk.mountainsGroup);
+      createChunkInstMesh('mountain_B', mountainItemsB, chunk.mountainsGroup);
+      createChunkInstMesh('mountain_C', mountainItemsC, chunk.mountainsGroup);
+      createChunkInstMesh('hills_A', hillItems, chunk.mountainsGroup);
 
-      createChunkInstMesh('rock_single_A', propItemsA, propsGroup);
-      createChunkInstMesh('rock_single_B', propItemsB, propsGroup);
-
-      chunkGroup.add(treesGroup);
-      chunkGroup.add(mountainsGroup);
-      chunkGroup.add(propsGroup);
-      group.add(chunkGroup);
-
-      activeChunks.push({
-        chunkKey: chunkDef.chunkKey,
-        centerX,
-        centerZ,
-        group: chunkGroup,
-        treesGroup,
-        mountainsGroup,
-        propsGroup,
-      });
+      createChunkInstMesh('rock_single_A', propItemsA, chunk.propsGroup);
+      createChunkInstMesh('rock_single_B', propItemsB, chunk.propsGroup);
     });
 
     visualsPopulated = true;
@@ -469,23 +532,18 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
   };
 
   // Preload and build visuals as assets become ready
-  console.log('[terrainGenerator] Initial isReady check:', worldTerrainAssetService.isReady());
   if (worldTerrainAssetService.isReady()) {
     populateVisuals();
   } else {
     const unsub = worldTerrainAssetService.onAssetLoaded(() => {
-      const ready = worldTerrainAssetService.isReady();
-      console.log('[terrainGenerator] onAssetLoaded triggered, isReady:', ready);
-      if (ready) {
+      if (worldTerrainAssetService.isReady()) {
         populateVisuals();
         unsub();
       }
     });
 
     worldTerrainAssetService.preloadAll().then(() => {
-      const ready = worldTerrainAssetService.isReady();
-      console.log('[terrainGenerator] preloadAll.then triggered, isReady:', ready);
-      if (ready) {
+      if (worldTerrainAssetService.isReady()) {
         populateVisuals();
       }
     });
@@ -501,31 +559,31 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
 
   let currentZoomTier: 'city' | 'region' | 'world' = 'region';
 
-  // Water animation callback (disabled at world zoom to save CPU)
+  // Water animation callback: updates shared water texture offsets smoothly on GPU
+  const waterTex = waterMat.map;
   const updateAnimation = (time: number) => {
-    if (currentZoomTier === 'world') return;
-    if (activeWaterInst) {
-      activeWaterInst.position.y = Math.sin(time * 1.4) * 0.08;
+    if (waterTex) {
+      waterTex.offset.x = (time * 0.012) % 1;
+      waterTex.offset.y = (time * 0.008) % 1;
     }
   };
 
-  // Zoom-level LOD (Requirement 10: Camera-based visibility)
+  // Zoom-level LOD
   const setLOD = (zoomTier: 'city' | 'region' | 'world') => {
     currentZoomTier = zoomTier;
-    if (!visualsPopulated) return;
-
     activeChunks.forEach((chunk) => {
       if (zoomTier === 'world') {
-        // Zoomed out: hide small foliage and props, keep only base terrain and major mountain peaks
+        // Zoomed out: hide small foliage and props, keep solid continuous green landmass & mountains
         chunk.treesGroup.visible = false;
         chunk.propsGroup.visible = false;
         chunk.mountainsGroup.visible = true;
       } else if (zoomTier === 'region') {
+        // Regional view: show tree groves & mountains, hide micro props
         chunk.treesGroup.visible = true;
         chunk.mountainsGroup.visible = true;
-        chunk.propsGroup.visible = false; // props hidden in regional view
+        chunk.propsGroup.visible = false;
       } else {
-        // City view: full environmental detail
+        // City view: full environmental fidelity
         chunk.treesGroup.visible = true;
         chunk.mountainsGroup.visible = true;
         chunk.propsGroup.visible = true;
@@ -533,44 +591,62 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
     });
   };
 
-  // Dynamic Camera Distance-based Chunk Culling (Requirement 8 & 9)
+  // Dynamic Camera Distance-based Chunk Culling & LOD
   const updateCameraTarget = (camTarget: THREE.Vector3, zoomTier: 'city' | 'region' | 'world') => {
     currentZoomTier = zoomTier;
-    if (!visualsPopulated) return;
 
     const nearDistSq = 320 * 320;   // ~7 hex radius: Full detail
-    const midDistSq = 580 * 580;    // ~14 hex radius: Medium detail
+    const midDistSq = 620 * 620;    // ~14 hex radius: Medium detail
+    const farDistSq = 1100 * 1100;  // Visible horizon limit
 
     activeChunks.forEach((chunk) => {
       const dx = chunk.centerX - camTarget.x;
       const dz = chunk.centerZ - camTarget.z;
       const distSq = dx * dx + dz * dz;
 
-      if (distSq > midDistSq) {
-        // Far: Hide detailed 3D props; continuous green base terrain handles visual fidelity
-        chunk.treesGroup.visible = false;
-        chunk.mountainsGroup.visible = false;
-        chunk.propsGroup.visible = false;
-      } else if (distSq > nearDistSq) {
-        // Medium: Show mountains; show trees only if not in world zoom; hide micro props
-        chunk.mountainsGroup.visible = true;
-        chunk.treesGroup.visible = zoomTier !== 'world';
-        chunk.propsGroup.visible = false;
+      if (distSq > farDistSq) {
+        // Beyond horizon: cull entire chunk group
+        chunk.group.visible = false;
       } else {
-        // Near: Apply active zoom tier settings
-        if (zoomTier === 'world') {
+        chunk.group.visible = true;
+
+        if (distSq > midDistSq) {
+          // Mid-to-far distance: Keep landmass and mountain silhouettes; cull fine trees/props
           chunk.treesGroup.visible = false;
           chunk.mountainsGroup.visible = true;
           chunk.propsGroup.visible = false;
-        } else if (zoomTier === 'region') {
-          chunk.treesGroup.visible = true;
+        } else if (distSq > nearDistSq) {
+          // Medium distance
           chunk.mountainsGroup.visible = true;
+          chunk.treesGroup.visible = zoomTier !== 'world';
           chunk.propsGroup.visible = false;
         } else {
-          chunk.treesGroup.visible = true;
-          chunk.mountainsGroup.visible = true;
-          chunk.propsGroup.visible = true;
+          // Near distance: Apply active zoom settings
+          if (zoomTier === 'world') {
+            chunk.treesGroup.visible = false;
+            chunk.mountainsGroup.visible = true;
+            chunk.propsGroup.visible = false;
+          } else if (zoomTier === 'region') {
+            chunk.treesGroup.visible = true;
+            chunk.mountainsGroup.visible = true;
+            chunk.propsGroup.visible = false;
+          } else {
+            chunk.treesGroup.visible = true;
+            chunk.mountainsGroup.visible = true;
+            chunk.propsGroup.visible = true;
+          }
         }
+      }
+    });
+  };
+
+  const dispose = () => {
+    activeChunks.forEach((chunk) => {
+      if (chunk.landMesh) {
+        chunk.landMesh.dispose();
+      }
+      if (chunk.waterMesh) {
+        chunk.waterMesh.dispose();
       }
     });
   };
@@ -584,5 +660,6 @@ export function createWorldTerrain(tiles: WorldTile[]): TerrainMeshBundle {
     updateAnimation,
     setLOD,
     updateCameraTarget,
+    dispose,
   };
 }

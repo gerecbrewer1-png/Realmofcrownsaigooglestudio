@@ -295,3 +295,111 @@ export function getHeraldicBannerTexture(heroClass?: HeroClass): THREE.CanvasTex
   textureCache.set(key, texture);
   return texture;
 }
+
+/**
+ * 7. Continuous Vivid Green Medieval Meadow Texture
+ * Generates an organic, rich grass texture with soft earth undertones,
+ * delicate blade stippling, and natural clover variation.
+ */
+export function getLushMeadowTexture(): THREE.CanvasTexture {
+  const key = 'lush_meadow_hd';
+  if (textureCache.has(key)) return textureCache.get(key)!;
+
+  const safe = createSafeCanvas(512, 512);
+  if (!safe) return getFallbackTexture(key);
+  const { canvas, ctx } = safe;
+
+  // Base lush grass gradient
+  const grad = ctx.createLinearGradient(0, 0, 512, 512);
+  grad.addColorStop(0, '#42933a');
+  grad.addColorStop(0.5, '#4eaa44');
+  grad.addColorStop(1, '#398433');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Soft organic earth & clover dappling
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const r = 1.5 + Math.random() * 3.5;
+    const tone = Math.random();
+    if (tone < 0.45) {
+      ctx.fillStyle = 'rgba(88, 185, 75, 0.45)'; // bright sunlit clover green
+    } else if (tone < 0.80) {
+      ctx.fillStyle = 'rgba(38, 92, 33, 0.35)'; // deeper shadowed grass
+    } else {
+      ctx.fillStyle = 'rgba(138, 115, 65, 0.25)'; // warm rich fertile loam
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Fine grass blade striations
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 700; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const len = 6 + Math.random() * 10;
+    const angle = (Math.PI / 4) + (Math.random() - 0.5) * 0.8;
+    ctx.strokeStyle = Math.random() > 0.5 ? 'rgba(110, 210, 95, 0.30)' : 'rgba(28, 75, 24, 0.30)';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(3, 3);
+  textureCache.set(key, texture);
+  return texture;
+}
+
+/**
+ * 8. Shimmering Royal Ocean Waves Texture
+ * Generates translucent azure ocean ripples and caustic highlights.
+ */
+export function getWaterRipplesTexture(): THREE.CanvasTexture {
+  const key = 'water_ripples_hd';
+  if (textureCache.has(key)) return textureCache.get(key)!;
+
+  const safe = createSafeCanvas(512, 512);
+  if (!safe) return getFallbackTexture(key);
+  const { canvas, ctx } = safe;
+
+  // Deep royal oceanic base
+  ctx.fillStyle = '#0a4b7c';
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Concentric sine wave interference ripples
+  for (let y = 0; y < 512; y += 8) {
+    ctx.beginPath();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = 'rgba(20, 115, 185, 0.35)';
+    for (let x = 0; x < 512; x += 16) {
+      const wave = Math.sin(x * 0.05 + y * 0.03) * 6 + Math.cos(x * 0.03 - y * 0.04) * 4;
+      if (x === 0) ctx.moveTo(x, y + wave);
+      else ctx.lineTo(x, y + wave);
+    }
+    ctx.stroke();
+  }
+
+  // Crest specular foam & sun gleams
+  for (let i = 0; i < 400; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    ctx.fillStyle = 'rgba(195, 240, 255, 0.40)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 4 + Math.random() * 5, 1.2 + Math.random() * 1.5, Math.PI / 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(4, 4);
+  textureCache.set(key, texture);
+  return texture;
+}

@@ -43,6 +43,7 @@ import {
   ZoomLevel,
 } from './cameraController';
 import { worldTerrainAssetService } from './worldTerrainAssetService';
+import { getWaterRipplesTexture } from './medievalTextures';
 
 export type GraphicsQuality = 'performance' | 'balanced' | 'ultra';
 
@@ -181,10 +182,12 @@ interface WorldAnimator {
     // Guarantees rich royal ocean water anywhere there is aquatic hexes or open seas,
     // with zero void gaps visible from any camera angle.
     const outerOceanGeo = new THREE.PlaneGeometry(8000, 8000);
+    const outerOceanTex = getWaterRipplesTexture();
     const outerOceanMat = new THREE.MeshStandardMaterial({
-      color: 0x0c4a6e,
-      roughness: 0.18,
-      metalness: 0.28,
+      color: 0x0a4b7c,
+      map: outerOceanTex,
+      roughness: 0.16,
+      metalness: 0.30,
       transparent: true,
       opacity: 0.95,
     });
@@ -455,6 +458,7 @@ interface WorldAnimator {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animationFrameId);
       builtTilesFingerprintRef.current = '';
+      terrainBundleRef.current?.dispose?.();
       terrainBundleRef.current = null;
       terrainGroupRef.current.clear();
       if (renderer.domElement && container.contains(renderer.domElement)) {
@@ -512,6 +516,7 @@ interface WorldAnimator {
     builtTilesFingerprintRef.current = fingerprint;
 
     // Clean up previous terrain bundle
+    terrainBundleRef.current?.dispose?.();
     terrainGroupRef.current.clear();
     terrainBundleRef.current = null;
 

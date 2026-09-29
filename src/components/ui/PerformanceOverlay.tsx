@@ -38,20 +38,68 @@ export const PerformanceOverlay: React.FC<PerformanceOverlayProps> = ({
       </div>
 
       {isExpanded && (
-        <div className="mt-1.5 p-3 bg-stone-950/95 backdrop-blur-lg border border-amber-900/40 rounded-lg shadow-2xl space-y-2 text-stone-300 w-52 animate-in fade-in slide-in-from-top-2 duration-150">
-          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1.5">
+        <div className="mt-1.5 p-3 bg-stone-950/95 backdrop-blur-lg border border-amber-900/40 rounded-lg shadow-2xl space-y-1.5 text-stone-300 w-64 animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1">
             <span className="text-stone-400 text-[11px]">Avg FPS (10s)</span>
             <span className={getFpsColor(metrics.avgFps)}>{metrics.avgFps} FPS</span>
           </div>
 
-          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1.5">
-            <span className="text-stone-400 text-[11px]">Active Entities</span>
-            <span className="text-stone-200 font-semibold">{metrics.activeEntities}</span>
+          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1">
+            <span className="text-stone-400 text-[11px]">1% Low (Spikes)</span>
+            <span className={metrics.worstFrameMs && metrics.worstFrameMs > 33.3 ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+              {metrics.worstFrameMs ? `${metrics.worstFrameMs}ms` : '16.6ms'} ({metrics.onePercentLowFps ?? 60} FPS)
+            </span>
           </div>
 
-          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1.5">
-            <span className="text-stone-400 text-[11px]">Engine</span>
-            <span className="text-amber-400 font-bold">PlayCanvas 2.22</span>
+          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1">
+            <span className="text-stone-400 text-[11px]">Draw Calls</span>
+            <span className="text-amber-300 font-bold">{metrics.drawCalls}</span>
+          </div>
+
+          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1">
+            <span className="text-stone-400 text-[11px]">Active AI / Anim</span>
+            <span className="text-stone-200 font-semibold">{metrics.activeAIAgents ?? metrics.activeEntities} / {metrics.activeAnimations ?? 0}</span>
+          </div>
+
+          {metrics.tierCounts && (
+            <div className="border-b border-stone-800/80 pb-1 text-[11px]">
+              <div className="flex justify-between text-stone-400 mb-0.5">
+                <span>RAHR Tiers</span>
+                <span className="text-amber-400 font-bold">
+                  T0:{metrics.tierCounts.t0} | T1:{metrics.tierCounts.t1} | T2:{metrics.tierCounts.t2}
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px] text-stone-400">
+                <span>Rejections (Reg/Cell/Grp)</span>
+                <span className="text-emerald-400 font-semibold">
+                  {metrics.regionsRejected ?? 0}R / {metrics.cellsRejected ?? 0}C / {metrics.groupsRejected ?? 0}G
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px] text-stone-400 mt-0.5">
+                <span>AI Updates (Full/Red/Def)</span>
+                <span className="text-stone-300">
+                  {metrics.fullAIUpdatesPerSec ?? 0}/s | {metrics.reducedAIUpdatesPerSec ?? 0}/s | {metrics.deferredUpdates ?? 0}
+                </span>
+              </div>
+              {metrics.rahrSchedulerCpuMs !== undefined && (
+                <div className="flex justify-between text-[10px] text-stone-400 mt-0.5">
+                  <span>Scheduler Overhead</span>
+                  <span className="text-amber-300 font-mono">{metrics.rahrSchedulerCpuMs}ms</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {metrics.jsHeapUsedMB !== undefined && metrics.jsHeapUsedMB !== null && (
+            <div className="flex justify-between items-center border-b border-stone-800/80 pb-1">
+              <span className="text-stone-400 text-[11px]">JS Heap</span>
+              <span className="text-stone-300">{metrics.jsHeapUsedMB} MB</span>
+            </div>
+          )}
+
+          <div className="flex justify-between items-center border-b border-stone-800/80 pb-1">
+            <span className="text-stone-400 text-[11px]">Engine / Arch</span>
+            <span className="text-amber-400 font-bold">PlayCanvas 2.22 (RAHR)</span>
           </div>
 
           <div className="pt-1">

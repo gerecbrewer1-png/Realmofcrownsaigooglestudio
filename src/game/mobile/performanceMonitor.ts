@@ -3,20 +3,48 @@
  * Tracks FPS, frame times, entity density, and automatically adapts resolution scale to maintain 60 FPS.
  */
 
+import { RahrPerformanceMonitor, RahrTelemetryMetrics } from '../performance/RahrPerformanceMonitor';
+
 export type QualityPreset = 'low' | 'medium' | 'high' | 'auto';
 
 export interface PerformanceMetrics {
   fps: number;
   avgFps: number;
+  onePercentLowFps?: number;
   frameTimeMs: number;
+  avgFrameTimeMs?: number;
+  worstFrameMs?: number;
   resolutionScale: number;
   preset: QualityPreset;
   activeEntities: number;
   drawCalls: number;
+  forwardDrawCalls?: number;
+  shadowDrawCalls?: number;
+  triangles?: number;
+  visibleObjects?: number;
+  activeAIAgents?: number;
+  activeAnimations?: number;
+  activePhysicsBodies?: number;
+  jsHeapUsedMB?: number | null;
   isBatteryThrottling: boolean;
+
+  // RAHR Phase 2 telemetry
+  tierCounts?: { t0: number; t1: number; t2: number; t3: number; t4: number };
+  fullAIUpdatesPerSec?: number;
+  reducedAIUpdatesPerSec?: number;
+  deferredUpdates?: number;
+  navRequestsPerSec?: number;
+  animEvalsPerFrame?: number;
+  animReducedPerFrame?: number;
+  regionsRejected?: number;
+  cellsRejected?: number;
+  groupsRejected?: number;
+  entitiesDetailedEval?: number;
+  rahrSchedulerCpuMs?: number;
 }
 
 export class PerformanceMonitor {
+  private rahrMonitor: RahrPerformanceMonitor;
   private frames = 0;
   private lastTime = performance.now();
   private fps = 60;
@@ -32,11 +60,13 @@ export class PerformanceMonitor {
   private drawCalls = 0;
 
   constructor(initialPreset: QualityPreset = 'auto') {
+    this.rahrMonitor = RahrPerformanceMonitor.getInstance();
     this.setPreset(initialPreset);
   }
 
   public setPreset(preset: QualityPreset): void {
     this.preset = preset;
+    this.rahrMonitor.setPreset(preset);
     switch (preset) {
       case 'low':
         this.resolutionScale = 0.75;
@@ -55,13 +85,15 @@ export class PerformanceMonitor {
 
   public setEntityCount(count: number): void {
     this.activeEntities = count;
+    this.rahrMonitor.setSimulationCounts({ activeObjects: count });
   }
 
   public setDrawCalls(count: number): void {
     this.drawCalls = count;
   }
 
-  public tick(): void {
+  public tick(app?: any): void {
+    this.rahrMonitor.tick(app);
     this.frames++;
     const now = performance.now();
     const elapsed = now - this.lastTime;
@@ -99,6 +131,7 @@ export class PerformanceMonitor {
   }
 
   public getMetrics(): PerformanceMetrics {
+    const rahr = this.rahrMonitor.getTelemetry();
     const avg = this.fpsHistory.length > 0
       ? Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length)
       : this.fps;
@@ -106,12 +139,35 @@ export class PerformanceMonitor {
     return {
       fps: this.fps,
       avgFps: avg,
+      onePercentLowFps: rahr.onePercentLowFps,
       frameTimeMs: this.frameTimeMs,
+      avgFrameTimeMs: rahr.avgFrameTimeMs,
+      worstFrameMs: rahr.worstFrameMs,
       resolutionScale: Math.round(this.resolutionScale * 100) / 100,
       preset: this.preset,
       activeEntities: this.activeEntities,
-      drawCalls: this.drawCalls,
-      isBatteryThrottling: this.fps < 30
+      drawCalls: rahr.drawCalls || this.drawCalls,
+      forwardDrawCalls: rahr.forwardDrawCalls,
+      shadowDrawCalls: rahr.shadowDrawCalls,
+      triangles: rahr.triangles,
+      visibleObjects: rahr.visibleObjects,
+      activeAIAgents: rahr.activeAIAgents,
+      activeAnimations: rahr.activeAnimations,
+      activePhysicsBodies: rahr.activePhysicsBodies,
+      jsHeapUsedMB: rahr.jsHeapUsedMB,
+      isBatteryThrottling: this.fps < 30,
+      tierCounts: rahr.tierCounts,
+      fullAIUpdatesPerSec: rahr.fullAIUpdatesPerSec,
+      reducedAIUpdatesPerSec: rahr.reducedAIUpdatesPerSec,
+      deferredUpdates: rahr.deferredUpdates,
+      navRequestsPerSec: rahr.navRequestsPerSec,
+      animEvalsPerFrame: rahr.animEvalsPerFrame,
+      animReducedPerFrame: rahr.animReducedPerFrame,
+      regionsRejected: rahr.regionsRejected,
+      cellsRejected: rahr.cellsRejected,
+      groupsRejected: rahr.groupsRejected,
+      entitiesDetailedEval: rahr.entitiesDetailedEval,
+      rahrSchedulerCpuMs: rahr.rahrSchedulerCpuMs
     };
   }
 }

@@ -67,6 +67,57 @@ export class PlayCanvasCharacter {
     this.app.root.addChild(this.root);
   }
 
+  // Cached shared materials for all character health bars across the battlefield
+  private static sharedHealthBgMat: pc.StandardMaterial | null = null;
+  private static sharedHealthFillEnemy: pc.StandardMaterial | null = null;
+  private static sharedHealthFillAlly: pc.StandardMaterial | null = null;
+  private static sharedHealthFillPlayer: pc.StandardMaterial | null = null;
+  private wasMoving = false;
+
+  private static getHealthBgMaterial(): pc.StandardMaterial {
+    if (!this.sharedHealthBgMat) {
+      const mat = new pc.StandardMaterial();
+      mat.diffuse = new pc.Color(0.1, 0.1, 0.15);
+      mat.update();
+      this.sharedHealthBgMat = mat;
+    }
+    return this.sharedHealthBgMat;
+  }
+
+  private static getHealthFillMaterial(team: string): pc.StandardMaterial {
+    if (team === 'enemy') {
+      if (!this.sharedHealthFillEnemy) {
+        const mat = new pc.StandardMaterial();
+        mat.diffuse = new pc.Color(0.9, 0.2, 0.2);
+        mat.emissive = mat.diffuse;
+        mat.emissiveIntensity = 0.2;
+        mat.update();
+        this.sharedHealthFillEnemy = mat;
+      }
+      return this.sharedHealthFillEnemy;
+    }
+    if (team === 'player') {
+      if (!this.sharedHealthFillPlayer) {
+        const mat = new pc.StandardMaterial();
+        mat.diffuse = new pc.Color(0.2, 0.85, 0.3);
+        mat.emissive = mat.diffuse;
+        mat.emissiveIntensity = 0.2;
+        mat.update();
+        this.sharedHealthFillPlayer = mat;
+      }
+      return this.sharedHealthFillPlayer;
+    }
+    if (!this.sharedHealthFillAlly) {
+      const mat = new pc.StandardMaterial();
+      mat.diffuse = new pc.Color(0.2, 0.75, 0.85);
+      mat.emissive = mat.diffuse;
+      mat.emissiveIntensity = 0.2;
+      mat.update();
+      this.sharedHealthFillAlly = mat;
+    }
+    return this.sharedHealthFillAlly;
+  }
+
   private buildSelectionRing(config: CharacterVisualConfig): void {
     const scale = config.scale ?? (config.isHero ? 1.3 : 1.0);
     const ringMat = new pc.StandardMaterial();
@@ -76,7 +127,7 @@ export class PlayCanvasCharacter {
     ringMat.update();
 
     this.selectionRing = new pc.Entity('SelectionRing');
-    this.selectionRing.addComponent('render', { type: 'cylinder', material: ringMat });
+    this.selectionRing.addComponent('render', { type: 'cylinder', material: ringMat, castShadows: false });
     this.selectionRing.setLocalScale(1.3 * scale, 0.03, 1.3 * scale);
     this.selectionRing.setLocalPosition(0, 0.02, 0);
     this.selectionRing.enabled = false;
@@ -246,25 +297,23 @@ export class PlayCanvasCharacter {
     this.healthBarRoot = new pc.Entity('HealthBar');
     this.healthBarRoot.setLocalPosition(0, 1.95 * scale, 0);
 
-    // Background (dark grey)
-    const bgMat = new pc.StandardMaterial();
-    bgMat.diffuse = new pc.Color(0.1, 0.1, 0.15);
-    bgMat.update();
-
+    // Background (shared material, shadows disabled for UI billboard)
     const bg = new pc.Entity('Bg');
-    bg.addComponent('render', { type: 'box', material: bgMat });
+    bg.addComponent('render', {
+      type: 'box',
+      material: PlayCanvasCharacter.getHealthBgMaterial(),
+      castShadows: false
+    });
     bg.setLocalScale(1.0, 0.12, 0.08);
     this.healthBarRoot.addChild(bg);
 
-    // Foreground (Green / Yellow / Red based on team)
-    const fillMat = new pc.StandardMaterial();
-    fillMat.diffuse = this.team === 'enemy' ? new pc.Color(0.9, 0.2, 0.2) : new pc.Color(0.2, 0.85, 0.3);
-    fillMat.emissive = fillMat.diffuse;
-    fillMat.emissiveIntensity = 0.2;
-    fillMat.update();
-
+    // Foreground (shared material, shadows disabled for UI billboard)
     this.healthBarFill = new pc.Entity('Fill');
-    this.healthBarFill.addComponent('render', { type: 'box', material: fillMat });
+    this.healthBarFill.addComponent('render', {
+      type: 'box',
+      material: PlayCanvasCharacter.getHealthFillMaterial(this.team),
+      castShadows: false
+    });
     this.healthBarFill.setLocalScale(0.96, 0.1, 0.09);
     this.healthBarFill.setLocalPosition(0, 0, 0.01);
     this.healthBarRoot.addChild(this.healthBarFill);
@@ -369,9 +418,10 @@ export class PlayCanvasCharacter {
       this.selectionRing.rotate(0, delta * 75, 0);
     }
 
-    // Walk cycle animation on legs, torso and arms
+    // Walk cycle animation on legs, torso and arms (guarded against redundant transform updates when idle)
     const moving = typeof isMoving === 'number' ? isMoving > 0.05 : Boolean(isMoving);
     if (moving && this.leftLeg && this.rightLeg) {
+      this.wasMoving = true;
       this.walkTimer += delta * 9.5;
       const swing = Math.sin(this.walkTimer) * 26;
       this.leftLeg.setLocalEulerAngles(swing, 0, 0);
@@ -379,7 +429,9 @@ export class PlayCanvasCharacter {
       if (this.torso) {
         this.torso.setLocalPosition(0, 0.95 + Math.abs(Math.sin(this.walkTimer)) * 0.04, 0);
       }
-    } else if (this.leftLeg && this.rightLeg) {
+    } else if (this.wasMoving && this.leftLeg && this.rightLeg) {
+      this.wasMoving = false;
+      this.walkTimer = 0;
       this.leftLeg.setLocalEulerAngles(0, 0, 0);
       this.rightLeg.setLocalEulerAngles(0, 0, 0);
       if (this.torso) {

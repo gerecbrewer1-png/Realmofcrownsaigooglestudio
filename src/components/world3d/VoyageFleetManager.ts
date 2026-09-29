@@ -15,6 +15,7 @@ import { FactionId } from './SailHeraldryService';
 import { SimulationTier, VoyageSimulationLOD } from './VoyageSimulationLOD';
 import { VoyageSpatialGrid } from './VoyageSpatialGrid';
 import { ShipLODController, ShipLODTier } from './ShipLODController';
+import { VoyageCollisionSystem } from './VoyageCollisionSystem';
 
 export interface FleetEntity {
   id: string;
@@ -82,6 +83,9 @@ export class VoyageFleetManager {
   private lastSecondTime = 0;
   private aiUpdatesPerSec = 0;
 
+  private static readonly _tempSphere = new THREE.Sphere();
+  private static readonly _scratchVec = new THREE.Vector3();
+
   constructor() {
     this.lastSecondTime = performance.now();
   }
@@ -130,7 +134,7 @@ export class VoyageFleetManager {
       this.lastSecondTime = now;
     }
 
-    const _sphere = new THREE.Sphere();
+    const _sphere = VoyageFleetManager._tempSphere;
 
     for (let i = 0; i < this.entities.length; i++) {
       const e = this.entities[i];
@@ -152,6 +156,15 @@ export class VoyageFleetManager {
         this.aiUpdatesThisFrame++;
         this.aiUpdatesAccumulator++;
         e.lastSimUpdateFrame = this.frameCount;
+
+        // Apply obstacle avoidance steering (Islands, Mainland Cliffs)
+        e.heading = VoyageCollisionSystem.calculateIslandAvoidanceHeading(
+          e.pos.x,
+          e.pos.z,
+          e.heading,
+          e.turnSpeed,
+          dt
+        );
 
         // Execute AI logic based on simulation tier
         if (e.simTier === SimulationTier.SIM0_IMMEDIATE) {
@@ -194,15 +207,14 @@ export class VoyageFleetManager {
         }
       }
 
-      // 3. Movement integration (scaled appropriately by tier)
-      if (e.simTier !== SimulationTier.SIM4_STRATEGIC) {
-        e.pos.x += Math.sin(e.heading) * e.speed * dt;
-        e.pos.z += Math.cos(e.heading) * e.speed * dt;
-      } else {
-        // Coarse strategic movement
-        e.pos.x += Math.sin(e.heading) * e.speed * dt;
-        e.pos.z += Math.cos(e.heading) * e.speed * dt;
-      }
+      // 3. Movement integration
+      const moveDist = e.speed * dt;
+      e.pos.x += Math.sin(e.heading) * moveDist;
+      e.pos.z += Math.cos(e.heading) * moveDist;
+
+      // 3b. Collision Resolution against Islands & Northern Mainland
+      const shipRadius = (e.spec.length || 30) * 0.40;
+      VoyageCollisionSystem.resolveLandCollision(e.pos, shipRadius, e.speed, e.heading, globalTime);
 
       // 4. Update Spatial Hash Grid (O(1))
       this.spatialGrid.updateEntity({

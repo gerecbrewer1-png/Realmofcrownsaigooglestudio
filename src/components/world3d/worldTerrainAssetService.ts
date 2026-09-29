@@ -113,6 +113,10 @@ class WorldTerrainAssetService {
   public async preloadAll(): Promise<Map<string, LoadedWorldAsset>> {
     if (this.loadPromise) return this.loadPromise;
 
+    if (typeof window === 'undefined') {
+      return this.cache;
+    }
+
     this.loadPromise = (async () => {
       const entries = Object.entries(WORLD_ASSET_PATHS);
       const loadPromises = entries.map(async ([key, url]) => {

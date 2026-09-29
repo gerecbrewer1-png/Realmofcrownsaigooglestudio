@@ -23,6 +23,7 @@ import { VoyageFleetManager, FleetEntity } from './VoyageFleetManager';
 import { VoyageAreaOfInterest } from './VoyageAreaOfInterest';
 import { MMOWorldPartitionManager, NetworkLOD, MMOAuthoritativeEntity } from './MMOWorldPartition';
 import { VoyageNetworkClient } from './VoyageNetworkClient';
+import { VoyageCollisionSystem } from './VoyageCollisionSystem';
 import { soundEngine } from '../../audio/soundEngine';
 import { ISLAND_HAVENS, NATIONS, IslandHavenSpec } from '../../data/navalCatalog';
 import { auth } from '../../firebase/client';
@@ -223,12 +224,28 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     let lastPointerX = 0;
     let lastPointerY = 0;
 
+    // Detect mobile / touch devices for adaptive performance
+    const isMobileDevice = typeof navigator !== 'undefined' && (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (typeof window !== 'undefined' && window.innerWidth < 768)
+    );
+    if (isMobileDevice) {
+      VoyageQualityManager.setTier('LOW');
+    }
+    VoyageQualityManager.setAdaptive(true);
+    const qSettings = VoyageQualityManager.getSettings();
+
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'default' });
+      renderer = new THREE.WebGLRenderer({
+        antialias: !isMobileDevice,
+        powerPreference: 'high-performance',
+      });
       renderer.setSize(width, height);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.shadowMap.enabled = true;
+      // Cap pixel ratio to 1.0 on mobile to prevent GPU fillrate choking; 1.5 max on desktop
+      const safePixelRatio = isMobileDevice ? 1.0 : Math.min(window.devicePixelRatio, qSettings.pixelRatioCap || 1.5);
+      renderer.setPixelRatio(safePixelRatio);
+      renderer.shadowMap.enabled = qSettings.shadowsEnabled && !isMobileDevice;
       renderer.shadowMap.type = THREE.PCFShadowMap;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.25;
@@ -1027,6 +1044,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     camera.position.set(initialCamX, initialCamY, initialCamZ);
     camera.lookAt(playerState.pos.x, playerState.pos.y + 10, playerState.pos.z + 18);
 
+    let lastAppliedTod: string | null = null;
+    const CAVE_SANCTUARY_POS = new THREE.Vector3(-380, 0, 220);
+
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
@@ -1105,6 +1125,72 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         }
         if (Number.isFinite(forwardZ) && Number.isFinite(moveDist)) {
           playerState.pos.z += forwardZ * moveDist;
+        }
+
+        // --- PHYSICAL COLLISION RESOLUTION ---
+        const playerRadius = (playerSpec.length || 45) * 0.40;
+
+        // 1. Island, Shoal & Northern Mainland Collision
+        const landCol = VoyageCollisionSystem.resolveLandCollision(
+          playerState.pos,
+          playerRadius,
+          playerState.speedKnots,
+          playerState.heading,
+          globalTime
+        );
+        if (landCol.collided) {
+          playerState.speedKnots *= 0.30;
+          if (landCol.damage > 0) {
+            playerState.hull = Math.max(0, playerState.hull - landCol.damage);
+          }
+          if (landCol.logMessage) {
+            statusRef.current.combatLog.unshift(landCol.logMessage);
+          }
+        }
+
+        // 2. Ship-to-Ship Collision (Player vs Nearby NPC & MMO Vessels)
+        const nearbyTargets = fleetManager.getSpatialGrid().queryRadius(
+          playerState.pos.x,
+          playerState.pos.z,
+          playerRadius + 50
+        );
+        for (let sIdx = 0; sIdx < nearbyTargets.length; sIdx++) {
+          const targetId = nearbyTargets[sIdx].id;
+          const enemyShip = enemySpecs.find((e) => e.id === targetId && !e.isSinking);
+          if (enemyShip) {
+            const enemyRadius = (enemyShip.spec.length || 32) * 0.40;
+            const shipCol = VoyageCollisionSystem.resolveShipToShipCollision(
+              playerState.pos,
+              playerRadius,
+              playerState.speedKnots,
+              enemyShip.pos,
+              enemyRadius,
+              enemyShip.speed,
+              globalTime
+            );
+            if (shipCol.collided) {
+              playerState.speedKnots *= 0.60;
+              enemyShip.speed *= 0.60;
+              if (shipCol.rammingDamageA > 0) {
+                playerState.hull = Math.max(0, playerState.hull - shipCol.rammingDamageA);
+                enemyShip.hull = Math.max(0, enemyShip.hull - shipCol.rammingDamageB);
+
+                // Spawn wood splinter particles at contact point from pool
+                for (let sp = 0; sp < 3; sp++) {
+                  const spVel = VoyageObjectPool.scratchVec2.set(
+                    (Math.random() - 0.5) * 6,
+                    3 + Math.random() * 2,
+                    (Math.random() - 0.5) * 6
+                  );
+                  const spPart = VoyageObjectPool.acquireParticle(shipCol.contactPoint, spVel, 0.6, 1.2);
+                  if (spPart) {
+                    particles.push(spPart as unknown as Particle);
+                  }
+                }
+                statusRef.current.combatLog.unshift(`⚠️ Ramming collision with ${enemyShip.name}! Decks shudder! -${shipCol.rammingDamageA} HP`);
+              }
+            }
+          }
         }
 
         // Persist transform in refs so re-renders never wipe ship coordinates
@@ -1211,41 +1297,62 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       }
       camera.updateMatrixWorld(true);
 
-      // --- DYNAMIC TIME OF DAY SKY & LIGHTING ---
+      // --- DYNAMIC TIME OF DAY SKY & LIGHTING (Zero Per-Frame Allocation) ---
       const tod = timeOfDayRef.current || 'day';
-      if (tod === 'sunset') {
-        ambientLight.color.setHex(0xfbcfe8);
-        ambientLight.intensity = 0.75;
-        sun.color.setHex(0xf97316);
-        sun.intensity = 2.4;
-        scene.background = new THREE.Color(0xc2410c);
-        scene.fog = new THREE.Fog(0xc2410c, 400, 3000);
-        if (water && (water as any).material?.uniforms) {
-          (water as any).material.uniforms['sunColor'].value.setHex(0xf97316);
-          (water as any).material.uniforms['waterColor'].value.setHex(0x081f30);
-        }
-      } else if (tod === 'night') {
-        ambientLight.color.setHex(0x1e293b);
-        ambientLight.intensity = 0.4;
-        sun.color.setHex(0x94a3b8);
-        sun.intensity = 0.85;
-        scene.background = new THREE.Color(0x020617);
-        scene.fog = new THREE.Fog(0x020617, 300, 2500);
-        if (water && (water as any).material?.uniforms) {
-          (water as any).material.uniforms['sunColor'].value.setHex(0x93c5fd);
-          (water as any).material.uniforms['waterColor'].value.setHex(0x010b14);
-        }
-      } else {
-        // Daylight
-        ambientLight.color.setHex(0xbae6fd);
-        ambientLight.intensity = 0.95;
-        sun.color.setHex(0xfffbeb);
-        sun.intensity = 2.0;
-        scene.background = new THREE.Color(0x38bdf8);
-        scene.fog = new THREE.Fog(0x38bdf8, 500, 3500);
-        if (water && (water as any).material?.uniforms) {
-          (water as any).material.uniforms['sunColor'].value.setHex(0xfffbeb);
-          (water as any).material.uniforms['waterColor'].value.setHex(0x021729);
+      if (tod !== lastAppliedTod) {
+        lastAppliedTod = tod;
+        if (tod === 'sunset') {
+          ambientLight.color.setHex(0xfbcfe8);
+          ambientLight.intensity = 0.75;
+          sun.color.setHex(0xf97316);
+          sun.intensity = 2.4;
+          if (scene.background && (scene.background as THREE.Color).isColor) {
+            (scene.background as THREE.Color).setHex(0xc2410c);
+          }
+          if (scene.fog) {
+            scene.fog.color.setHex(0xc2410c);
+            (scene.fog as THREE.Fog).near = 400;
+            (scene.fog as THREE.Fog).far = 3000;
+          }
+          if (water && (water as any).material?.uniforms) {
+            (water as any).material.uniforms['sunColor'].value.setHex(0xf97316);
+            (water as any).material.uniforms['waterColor'].value.setHex(0x081f30);
+          }
+        } else if (tod === 'night') {
+          ambientLight.color.setHex(0x1e293b);
+          ambientLight.intensity = 0.4;
+          sun.color.setHex(0x94a3b8);
+          sun.intensity = 0.85;
+          if (scene.background && (scene.background as THREE.Color).isColor) {
+            (scene.background as THREE.Color).setHex(0x020617);
+          }
+          if (scene.fog) {
+            scene.fog.color.setHex(0x020617);
+            (scene.fog as THREE.Fog).near = 300;
+            (scene.fog as THREE.Fog).far = 2500;
+          }
+          if (water && (water as any).material?.uniforms) {
+            (water as any).material.uniforms['sunColor'].value.setHex(0x93c5fd);
+            (water as any).material.uniforms['waterColor'].value.setHex(0x010b14);
+          }
+        } else {
+          // Daylight
+          ambientLight.color.setHex(0xbae6fd);
+          ambientLight.intensity = 0.95;
+          sun.color.setHex(0xfffbeb);
+          sun.intensity = 2.0;
+          if (scene.background && (scene.background as THREE.Color).isColor) {
+            (scene.background as THREE.Color).setHex(0x38bdf8);
+          }
+          if (scene.fog) {
+            scene.fog.color.setHex(0x38bdf8);
+            (scene.fog as THREE.Fog).near = 500;
+            (scene.fog as THREE.Fog).far = 3500;
+          }
+          if (water && (water as any).material?.uniforms) {
+            (water as any).material.uniforms['sunColor'].value.setHex(0xfffbeb);
+            (water as any).material.uniforms['waterColor'].value.setHex(0x021729);
+          }
         }
       }
 
@@ -1321,8 +1428,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       // --- PIRATE & LIVING WORLD FLEET SIMULATION LOD (Phase 2.6) ---
       let nearestEnemy: EnemyShip | null = null;
       let minDistance = Infinity;
-      const caveSanctuaryPos = new THREE.Vector3(-380, 0, 220);
-      const isPlayerInTruce = playerState.pos.distanceTo(caveSanctuaryPos) < 165;
+      const isPlayerInTruce = playerState.pos.distanceTo(CAVE_SANCTUARY_POS) < 165;
 
       // Update full fleet simulation via time-sliced Simulation LOD & Spatial Grid
       fleetManager.updateFleetSimulation(
@@ -1332,7 +1438,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         camera.position,
         _cameraFrustum,
         isPlayerInTruce,
-        caveSanctuaryPos,
+        CAVE_SANCTUARY_POS,
         getWaveHeight,
         (enemyFleetEntity) => {
           // Pirate firing broadside at player via zero-allocation VoyageObjectPool
@@ -1726,51 +1832,53 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       renderer.render(scene, camera);
       renderFrameCount++;
 
-      // Record live diagnostics for baseline, profiling, and simulation LOD metrics
-      const info = renderer.info;
-      const qSettings = VoyageQualityManager.getSettings();
-      const activeVisual = 1 + enemySpecs.filter((e) => e.mesh?.visible && !e.isSinking).length;
-      const fleetDiag = fleetManager.getDiagnostics(activeVisual);
+      // Record live diagnostics throttled to ~10 FPS to eliminate GC thrashing
+      if (renderFrameCount % 6 === 0) {
+        const info = renderer.info;
+        const qSettings = VoyageQualityManager.getSettings();
+        const activeVisual = 1 + enemySpecs.filter((e) => e.mesh?.visible && !e.isSinking).length;
+        const fleetDiag = fleetManager.getDiagnostics(activeVisual);
 
-      (window as any).__NAVAL_DIAGNOSTICS__ = {
-        fps: Math.round(1 / Math.max(0.001, dt)),
-        frameTimeMs: Math.round(dt * 1000 * 10) / 10,
-        drawCalls: info.render.calls,
-        triangles: info.render.triangles,
-        points: info.render.points,
-        lines: info.render.lines,
-        geometries: info.memory.geometries,
-        textures: info.memory.textures,
-        activeShips: fleetDiag.activeShips,
-        totalShips: fleetDiag.totalShips,
-        visibleShips: fleetDiag.visibleShips,
-        culledShips: fleetDiag.culledShips,
-        lodCounts: fleetDiag.lodTiers,
-        simTiers: fleetDiag.simTiers,
-        pirateStats: fleetDiag.pirateStats,
-        npcStats: {
-          spawned: fleetDiag.totalShips,
-          active: fleetDiag.activeShips,
-          visible: fleetDiag.visibleShips,
-          culled: fleetDiag.culledShips,
-        },
-        aiUpdatesThisFrame: fleetDiag.aiUpdatesThisFrame,
-        aiUpdatesPerSec: fleetDiag.aiUpdatesPerSec,
-        spatialGridEntities: fleetDiag.spatialGridEntities,
-        poolStats: VoyageObjectPool.getActiveStats(),
-        debugSwitches: VoyageDebugManager.getSwitches(),
-        qualityTier: VoyageQualityManager.getTier(),
-        reflectionStatus: VoyageReflectionManager.getStatusString(),
-        shadowQuality: `${qSettings.shadowMapSize} / ${qSettings.shadowDistance}m`,
-        rendererBackend: 'WebGL2',
-        rendererOwnership: 'Three.js (Voyage Exclusive)',
-        activeRenderLoops: 1,
-        activeGPUContexts: 1,
-        connectionState: `Real-Time MMO: ${netMetrics.state} (Ping: ${netMetrics.pingMs}ms, Tick: ${netMetrics.serverTick})`,
-        netMetrics,
-        remoteEntitiesCount: netMetrics.remoteEntitiesCount,
-        mmoDiag,
-      };
+        (window as any).__NAVAL_DIAGNOSTICS__ = {
+          fps: Math.round(1 / Math.max(0.001, dt)),
+          frameTimeMs: Math.round(dt * 1000 * 10) / 10,
+          drawCalls: info.render.calls,
+          triangles: info.render.triangles,
+          points: info.render.points,
+          lines: info.render.lines,
+          geometries: info.memory.geometries,
+          textures: info.memory.textures,
+          activeShips: fleetDiag.activeShips,
+          totalShips: fleetDiag.totalShips,
+          visibleShips: fleetDiag.visibleShips,
+          culledShips: fleetDiag.culledShips,
+          lodCounts: fleetDiag.lodTiers,
+          simTiers: fleetDiag.simTiers,
+          pirateStats: fleetDiag.pirateStats,
+          npcStats: {
+            spawned: fleetDiag.totalShips,
+            active: fleetDiag.activeShips,
+            visible: fleetDiag.visibleShips,
+            culled: fleetDiag.culledShips,
+          },
+          aiUpdatesThisFrame: fleetDiag.aiUpdatesThisFrame,
+          aiUpdatesPerSec: fleetDiag.aiUpdatesPerSec,
+          spatialGridEntities: fleetDiag.spatialGridEntities,
+          poolStats: VoyageObjectPool.getActiveStats(),
+          debugSwitches: VoyageDebugManager.getSwitches(),
+          qualityTier: VoyageQualityManager.getTier(),
+          reflectionStatus: VoyageReflectionManager.getStatusString(),
+          shadowQuality: `${qSettings.shadowMapSize} / ${qSettings.shadowDistance}m`,
+          rendererBackend: 'WebGL2',
+          rendererOwnership: 'Three.js (Voyage Exclusive)',
+          activeRenderLoops: 1,
+          activeGPUContexts: 1,
+          connectionState: `Real-Time MMO: ${netMetrics.state} (Ping: ${netMetrics.pingMs}ms, Tick: ${netMetrics.serverTick})`,
+          netMetrics,
+          remoteEntitiesCount: netMetrics.remoteEntitiesCount,
+          mmoDiag,
+        };
+      }
     } catch (err) {
       (window as any).__VOYAGE_LAST_ERROR__ = err;
       console.error('[Voyage Render Loop Exception]:', err);
@@ -1811,7 +1919,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       (water as any).material?.dispose?.();
       waterNormalMap.dispose();
     };
-  }, [shipType, timeOfDay]);
+  }, [shipType]);
 
   return (
     <div className="relative w-full h-full select-none overflow-hidden bg-slate-950">

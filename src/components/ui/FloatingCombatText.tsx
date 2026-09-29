@@ -121,7 +121,8 @@ export const FloatingCombatText: React.FC<FloatingCombatTextProps> = ({ app, loo
         });
       }
 
-      setProjectedItems(results);
+      // Bail out if both previous and current results are empty to avoid redundant 60Hz React renders
+      setProjectedItems((prev) => (prev.length === 0 && results.length === 0 ? prev : results));
       animId = requestAnimationFrame(project);
     };
 

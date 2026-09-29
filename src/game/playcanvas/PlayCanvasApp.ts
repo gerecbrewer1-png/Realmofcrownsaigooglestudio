@@ -36,6 +36,10 @@ import { controlPreferences } from '../input/controlPreferences';
 import { CombatVFXSystem } from '../vfx/combatVFX';
 import { LootSystem, LootReward } from '../loot/lootSystem';
 import { RadarEntity } from '../../components/ui/TacticalRadar';
+import { RahrInterestGraph } from '../rahr/RahrInterestGraph';
+import { RahrScheduler } from '../rahr/RahrScheduler';
+import { RahrNavigationManager } from '../rahr/RahrNavigationManager';
+import { RahrSimulationTier } from '../rahr/RahrTypes';
 
 interface ArrowProjectile {
   entity: pc.Entity;
@@ -95,6 +99,73 @@ export class PlayCanvasApp {
   private npcs: NPCEntity[] = [];
   private arrows: ArrowProjectile[] = [];
   private droppedLootRaiderIds: Set<string> = new Set();
+
+  // RAHR Phase 2 Interest Graph & Simulation Scheduler
+  public interestGraph: RahrInterestGraph;
+  public scheduler: RahrScheduler;
+  public navigationManager: RahrNavigationManager;
+  private animEvalsFull = 0;
+  private animEvalsReduced = 0;
+
+  // Memory optimization: Static traits & scratch pools to eliminate per-frame GC churn
+  private static readonly BANDIT_TRAITS: Set<PersonalityTrait> = new Set<PersonalityTrait>(['AGGRESSIVE', 'BRAVE']);
+  private scratchRaiderEntities: NPCEntity[] = [];
+  private scratchThreatPositions: Array<{ id: string; x: number; z: number; isHero?: boolean; isRaider?: boolean; hp: number }> = [];
+  private scratchRaidersForHero: Array<{ id: string; x: number; z: number; isDead: boolean }> = [];
+  private scratchRaidersForArmy: Array<{ id: string; x: number; z: number; team: 'enemy'; isDead: boolean }> = [];
+  private scratchActiveRaiders: RaiderUnit[] = [];
+  private scratchWorldContext!: WorldContext;
+  private scratchSunColor = new pc.Color();
+  private scratchAmbientColor = new pc.Color();
+  private scratchSkyColor = new pc.Color();
+  private scratchHeroCombatant: Combatant = {
+    id: 'hero',
+    name: 'Hero',
+    team: 'player',
+    x: 0,
+    y: 0,
+    z: 0,
+    rotationY: 0,
+    hp: 450,
+    maxHp: 450,
+    attackDamage: 45,
+    attackRange: 2.4,
+    attackCooldown: 0,
+    armor: 18,
+    isDead: false
+  };
+  private scratchUnitCombatant: Combatant = {
+    id: 'unit',
+    name: 'Unit',
+    team: 'ally',
+    x: 0,
+    y: 0,
+    z: 0,
+    rotationY: 0,
+    hp: 100,
+    maxHp: 100,
+    attackDamage: 15,
+    attackRange: 2.2,
+    attackCooldown: 0,
+    armor: 6,
+    isDead: false
+  };
+  private scratchGuardCombatant: Combatant = {
+    id: 'guard',
+    name: 'Guard',
+    team: 'ally',
+    x: 0,
+    y: 0,
+    z: 0,
+    rotationY: 0,
+    hp: 120,
+    maxHp: 120,
+    attackDamage: 16,
+    attackRange: 2.2,
+    attackCooldown: 0,
+    armor: 7,
+    isDead: false
+  };
 
   // Centralized Shortcut subscriptions & Callbacks
   private shortcutUnsubs: Array<() => void> = [];
@@ -200,6 +271,21 @@ export class PlayCanvasApp {
     this.combatVFX = new CombatVFXSystem(this.app);
     this.lootSystem = new LootSystem(this.app);
 
+    // Initialize RAHR Phase 2 Runtime Systems
+    this.interestGraph = new RahrInterestGraph();
+    this.scheduler = new RahrScheduler(this.interestGraph);
+    this.navigationManager = RahrNavigationManager.getInstance();
+
+    this.scratchWorldContext = {
+      timeOfDayHours: this.timeOfDayHours,
+      isRaidActive: false,
+      playerPos: { x: 0, y: 0, z: 8 },
+      threats: this.scratchRaiderEntities,
+      allies: this.npcs,
+      villageCenter: { x: 0, y: 0, z: 0 },
+      safeHouse: { x: 0, y: 0, z: -18 }
+    };
+
     this.lootSystem.onLootCollected = (reward) => {
       try { soundEngine.playCoins(); } catch {}
       const heroPos = this.heroController.getPosition();
@@ -232,6 +318,7 @@ export class PlayCanvasApp {
     this.setupFullArmy();
     this.setupSettlementNPCs();
     this.setupWildlife();
+    this.setupRahrHierarchy();
 
     // 5. Start engine
     this.app.start();
@@ -295,7 +382,7 @@ export class PlayCanvasApp {
     ringMat.update();
 
     const ring = new pc.Entity('MarkerRing');
-    ring.addComponent('render', { type: 'cylinder', material: ringMat });
+    ring.addComponent('render', { type: 'cylinder', material: ringMat, castShadows: false });
     ring.setLocalScale(2.6, 0.05, 2.6);
     ring.setLocalPosition(0, 0.04, 0);
     this.destinationMarkerEntity.addChild(ring);
@@ -310,7 +397,7 @@ export class PlayCanvasApp {
     beamMat.update();
 
     const beam = new pc.Entity('MarkerBeam');
-    beam.addComponent('render', { type: 'cylinder', material: beamMat });
+    beam.addComponent('render', { type: 'cylinder', material: beamMat, castShadows: false });
     beam.setLocalScale(0.18, 3.8, 0.18);
     beam.setLocalPosition(0, 1.9, 0);
     this.destinationMarkerEntity.addChild(beam);
@@ -408,6 +495,7 @@ export class PlayCanvasApp {
 
     // If hero is selected, clicking on ground issues Click-to-Move!
     if (this.selectedEntity === 'hero') {
+      this.navigationManager.recordPathRequest(this.heroController.profile.id, { x: groundHit.x, z: groundHit.z });
       this.heroController.issueMoveTo(groundHit.x, groundHit.z);
       this.showDestinationMarker(groundHit.x, groundHit.z);
     }
@@ -427,6 +515,7 @@ export class PlayCanvasApp {
     if (!groundHit) return;
 
     if (this.selectedEntity === 'hero') {
+      this.navigationManager.recordPathRequest(this.heroController.profile.id, { x: groundHit.x, z: groundHit.z });
       this.heroController.issueMoveTo(groundHit.x, groundHit.z);
       this.showDestinationMarker(groundHit.x, groundHit.z);
       return;
@@ -477,6 +566,7 @@ export class PlayCanvasApp {
   }
 
   public issueSquadMove(destX: number, destZ: number, formation?: FormationType): void {
+    this.navigationManager.recordPathRequest('squad_royal_guard', { x: destX, z: destZ });
     this.armyController.issueMoveTo('squad_royal_guard', destX, destZ, formation);
     this.showDestinationMarker(destX, destZ);
     try {
@@ -813,6 +903,73 @@ export class PlayCanvasApp {
     }
   }
 
+  /**
+   * Initializes RAHR Phase 2 5-level Interest Hierarchy:
+   * WORLD -> REGION (128m) -> CELL (32m) -> GROUP (squad, settlement, wildlife) -> ENTITY
+   */
+  private setupRahrHierarchy(): void {
+    // 1. Register Player Hero (T0)
+    const heroPos = this.heroController.getPosition();
+    this.interestGraph.registerEntity(
+      this.heroController.profile.id,
+      'hero',
+      { x: heroPos.x, y: heroPos.y, z: heroPos.z },
+      null,
+      true
+    );
+
+    // 2. Register Royal Guard Army Squad & Individual Soldiers
+    const squad = this.armyController.getSquad('squad_royal_guard');
+    if (squad) {
+      this.interestGraph.registerGroup(
+        squad.id,
+        'formation',
+        { x: squad.formationCenter.x, y: 0, z: squad.formationCenter.z },
+        18.0
+      );
+      for (const unit of squad.units) {
+        this.interestGraph.registerEntity(
+          unit.id,
+          'soldier',
+          { x: unit.x, y: 0, z: unit.z },
+          squad.id
+        );
+      }
+    }
+
+    // 3. Register Settlement Village Group & NPCs
+    this.interestGraph.registerGroup(
+      'settlement_village',
+      'settlement',
+      { x: 0, y: 0, z: 0 },
+      35.0
+    );
+    for (const npc of this.npcs) {
+      this.interestGraph.registerEntity(
+        npc.id,
+        npc.role === 'guard' ? 'guard' : 'npc',
+        { x: npc.position.x, y: 0, z: npc.position.z },
+        'settlement_village'
+      );
+    }
+
+    // 4. Register Wildlife Meadow Group & Animals
+    this.interestGraph.registerGroup(
+      'wildlife_meadow',
+      'herd',
+      { x: -35, y: 0, z: -25 },
+      45.0
+    );
+    for (const animal of this.animalSystem.getAnimals()) {
+      this.interestGraph.registerEntity(
+        animal.id,
+        'animal',
+        { x: animal.position.x, y: 0, z: animal.position.z },
+        'wildlife_meadow'
+      );
+    }
+  }
+
   // --- CONTROLS & COMMANDS ---
 
   public toggleControlMode(): 'player' | 'ai' {
@@ -1104,37 +1261,45 @@ export class PlayCanvasApp {
     if (hours >= 6 && hours < 8.5) {
       // DAWN: Golden Rose
       const t = (hours - 6) / 2.5;
-      sunLight.color = new pc.Color(1.0, 0.78 + t * 0.18, 0.55 + t * 0.33);
+      this.scratchSunColor.set(1.0, 0.78 + t * 0.18, 0.55 + t * 0.33);
+      sunLight.color = this.scratchSunColor;
       sunLight.intensity = 0.8 + t * 0.55;
-      this.app.scene.ambientLight = new pc.Color(0.32 + t * 0.06, 0.32 + t * 0.1, 0.42 + t * 0.08);
-      const sky = new pc.Color(0.48 + t * -0.1, 0.42 + t * 0.1, 0.55 + t * 0.17);
-      if (cameraComp) cameraComp.clearColor = sky;
-      this.app.scene.fog.color = sky;
+      this.scratchAmbientColor.set(0.32 + t * 0.06, 0.32 + t * 0.1, 0.42 + t * 0.08);
+      this.app.scene.ambientLight = this.scratchAmbientColor;
+      this.scratchSkyColor.set(0.48 + t * -0.1, 0.42 + t * 0.1, 0.55 + t * 0.17);
+      if (cameraComp) cameraComp.clearColor = this.scratchSkyColor;
+      this.app.scene.fog.color = this.scratchSkyColor;
     } else if (hours >= 8.5 && hours < 16.5) {
       // DAY: Crisp 5500K daylight
-      sunLight.color = new pc.Color(1.0, 0.96, 0.9);
+      this.scratchSunColor.set(1.0, 0.96, 0.9);
+      sunLight.color = this.scratchSunColor;
       sunLight.intensity = 1.35;
-      this.app.scene.ambientLight = new pc.Color(0.4, 0.44, 0.52);
-      const sky = new pc.Color(0.36, 0.52, 0.74);
-      if (cameraComp) cameraComp.clearColor = sky;
-      this.app.scene.fog.color = sky;
+      this.scratchAmbientColor.set(0.4, 0.44, 0.52);
+      this.app.scene.ambientLight = this.scratchAmbientColor;
+      this.scratchSkyColor.set(0.36, 0.52, 0.74);
+      if (cameraComp) cameraComp.clearColor = this.scratchSkyColor;
+      this.app.scene.fog.color = this.scratchSkyColor;
     } else if (hours >= 16.5 && hours < 19.5) {
       // DUSK: Fiery Crimson & Golden Hour
       const t = (hours - 16.5) / 3.0;
-      sunLight.color = new pc.Color(1.0, 0.82 - t * 0.35, 0.45 - t * 0.3);
+      this.scratchSunColor.set(1.0, 0.82 - t * 0.35, 0.45 - t * 0.3);
+      sunLight.color = this.scratchSunColor;
       sunLight.intensity = 1.3 - t * 0.65;
-      this.app.scene.ambientLight = new pc.Color(0.38 - t * 0.15, 0.35 - t * 0.15, 0.46 - t * 0.15);
-      const sky = new pc.Color(0.52 - t * 0.3, 0.38 - t * 0.22, 0.5 - t * 0.25);
-      if (cameraComp) cameraComp.clearColor = sky;
-      this.app.scene.fog.color = sky;
+      this.scratchAmbientColor.set(0.38 - t * 0.15, 0.35 - t * 0.15, 0.46 - t * 0.15);
+      this.app.scene.ambientLight = this.scratchAmbientColor;
+      this.scratchSkyColor.set(0.52 - t * 0.3, 0.38 - t * 0.22, 0.5 - t * 0.25);
+      if (cameraComp) cameraComp.clearColor = this.scratchSkyColor;
+      this.app.scene.fog.color = this.scratchSkyColor;
     } else {
       // NIGHT: Cool Indigo Moonlight
-      sunLight.color = new pc.Color(0.35, 0.48, 0.75);
+      this.scratchSunColor.set(0.35, 0.48, 0.75);
+      sunLight.color = this.scratchSunColor;
       sunLight.intensity = 0.42;
-      this.app.scene.ambientLight = new pc.Color(0.14, 0.16, 0.24);
-      const sky = new pc.Color(0.08, 0.1, 0.18);
-      if (cameraComp) cameraComp.clearColor = sky;
-      this.app.scene.fog.color = sky;
+      this.scratchAmbientColor.set(0.14, 0.16, 0.24);
+      this.app.scene.ambientLight = this.scratchAmbientColor;
+      this.scratchSkyColor.set(0.08, 0.1, 0.18);
+      if (cameraComp) cameraComp.clearColor = this.scratchSkyColor;
+      this.app.scene.fog.color = this.scratchSkyColor;
     }
   }
 
@@ -1153,8 +1318,20 @@ export class PlayCanvasApp {
       this.terrainManager.update(clampedDelta, this.cameraEntity);
     }
 
-    // 1. Tick Performance Monitor
-    this.performanceMonitor.tick();
+    // 1. Tick Performance Monitor (RAHR Telemetry)
+    this.performanceMonitor.tick(this.app);
+    this.animEvalsFull = 0;
+    this.animEvalsReduced = 0;
+    this.navigationManager.tick();
+
+    // RAHR Interest Graph Hierarchy Evaluation (Focus = Player Hero)
+    const currentHeroPos = this.heroController.getPosition();
+    this.interestGraph.updateEntityPosition(this.heroController.profile.id, currentHeroPos.x, currentHeroPos.y, currentHeroPos.z);
+    const royalGuardSquad = this.armyController.getSquad('squad_royal_guard');
+    if (royalGuardSquad) {
+      this.interestGraph.updateGroupCenter('squad_royal_guard', royalGuardSquad.formationCenter.x, 0, royalGuardSquad.formationCenter.z);
+    }
+    this.interestGraph.evaluateInterest(currentHeroPos);
 
     // 2. Keyboard & Touch Movement (WASD & Arrow Keys & Joystick)
     // Feeds the EXACT same HeroController movement system
@@ -1220,8 +1397,15 @@ export class PlayCanvasApp {
       this.lastRaidState = currentRaidState;
     }
 
-    // Reinforcement wave check via BattleWaveManager
-    const raiders = this.raidEventSystem.getRaiders().filter(r => !r.isDead);
+    // Reinforcement wave check via BattleWaveManager (scratch array reuse)
+    const allRaiders = this.raidEventSystem.getRaiders();
+    this.scratchActiveRaiders.length = 0;
+    for (let i = 0; i < allRaiders.length; i++) {
+      if (!allRaiders[i].isDead) {
+        this.scratchActiveRaiders.push(allRaiders[i]);
+      }
+    }
+    const raiders = this.scratchActiveRaiders;
     if (currentRaidState === 'in_progress') {
       const nextWave = this.battleWaveManager.checkReinforcements(clampedDelta, raiders.length);
       if (nextWave) {
@@ -1230,84 +1414,132 @@ export class PlayCanvasApp {
       }
     }
 
-    // 6. Update NPCs via DecisionSystem
-    const raiderEntities: NPCEntity[] = raiders.map(r => ({
-      id: r.id,
-      name: r.name,
-      role: 'bandit',
-      faction: 'bandits',
-      traits: new Set<PersonalityTrait>(['AGGRESSIVE', 'BRAVE']),
-      courage: 0.8,
-      aggression: 0.9,
-      loyalty: 0.5,
-      sociability: 0.3,
-      position: { x: r.x, y: 0, z: r.z },
-      targetPosition: { x: r.targetObjective.x, y: 0, z: r.targetObjective.z },
-      velocity: { x: 0, y: 0, z: 0 },
-      rotationY: r.rotationY,
-      moveSpeed: 2.8,
-      health: r.hp,
-      maxHealth: r.maxHp,
-      attackPower: r.attackDamage,
-      attackRange: r.attackRange,
-      attackCooldownMs: 1500,
-      lastAttackTimestamp: 0,
-      activity: 'attacking',
-      needs: { survival: 100, safety: 80, work: 0, social: 0, duty: 100 },
-      memories: [],
-      relationshipScore: -100,
-      currentTargetId: null,
-      homePosition: { x: r.x, y: 0, z: r.z },
-      workPosition: { x: 0, y: 0, z: 0 },
-      animationState: 'Running_A'
-    }));
+    // 6. Update NPCs via DecisionSystem (using zero-allocation scratch pool)
+    const raiderCount = raiders.length;
+    while (this.scratchRaiderEntities.length < raiderCount) {
+      this.scratchRaiderEntities.push({
+        id: '',
+        name: '',
+        role: 'bandit',
+        faction: 'bandits',
+        traits: PlayCanvasApp.BANDIT_TRAITS,
+        courage: 0.8,
+        aggression: 0.9,
+        loyalty: 0.5,
+        sociability: 0.3,
+        position: { x: 0, y: 0, z: 0 },
+        targetPosition: { x: 0, y: 0, z: 0 },
+        velocity: { x: 0, y: 0, z: 0 },
+        rotationY: 0,
+        moveSpeed: 2.8,
+        health: 0,
+        maxHealth: 0,
+        attackPower: 0,
+        attackRange: 0,
+        attackCooldownMs: 1500,
+        lastAttackTimestamp: 0,
+        activity: 'attacking',
+        needs: { survival: 100, safety: 80, work: 0, social: 0, duty: 100 },
+        memories: [],
+        relationshipScore: -100,
+        currentTargetId: null,
+        homePosition: { x: 0, y: 0, z: 0 },
+        workPosition: { x: 0, y: 0, z: 0 },
+        animationState: 'Running_A'
+      });
+    }
+    this.scratchRaiderEntities.length = raiderCount;
+
+    for (let i = 0; i < raiderCount; i++) {
+      const r = raiders[i];
+      const e = this.scratchRaiderEntities[i];
+      e.id = r.id;
+      e.name = r.name;
+      e.position.x = r.x;
+      e.position.z = r.z;
+      e.targetPosition.x = r.targetObjective.x;
+      e.targetPosition.z = r.targetObjective.z;
+      e.rotationY = r.rotationY;
+      e.health = r.hp;
+      e.maxHealth = r.maxHp;
+      e.attackPower = r.attackDamage;
+      e.attackRange = r.attackRange;
+    }
 
     const heroPos = this.heroController.getPosition();
-    const worldContext: WorldContext = {
-      timeOfDayHours: this.timeOfDayHours,
-      isRaidActive: this.raidEventSystem.getState() === 'in_progress',
-      playerPos: { x: heroPos.x, y: heroPos.y, z: heroPos.z },
-      threats: raiderEntities,
-      allies: this.npcs,
-      villageCenter: { x: 0, y: 0, z: 0 },
-      safeHouse: { x: 0, y: 0, z: -18 }
-    };
+    this.scratchWorldContext.timeOfDayHours = this.timeOfDayHours;
+    this.scratchWorldContext.isRaidActive = currentRaidState === 'in_progress';
+    this.scratchWorldContext.playerPos.x = heroPos.x;
+    this.scratchWorldContext.playerPos.y = heroPos.y;
+    this.scratchWorldContext.playerPos.z = heroPos.z;
 
     for (const npc of this.npcs) {
-      DecisionSystem.updateDecision(npc, worldContext, clampedDelta);
-      DecisionSystem.executeMovement(npc, clampedDelta);
+      const rahrEntity = this.interestGraph.getEntity(npc.id);
+      const tier = rahrEntity ? rahrEntity.tier : RahrSimulationTier.T0_FULL;
+      if (rahrEntity) {
+        this.interestGraph.updateEntityPosition(npc.id, npc.position.x, npc.position.y, npc.position.z);
+      }
+
+      // Time-sliced scheduler tick:
+      // T0: full tick every frame
+      // T1: bucket-stride tick every 3 frames with accumulated delta
+      // T4: dormant, skip decision tick
+      const isDue = !this.scheduler.enableTimeSlicing ||
+        tier === RahrSimulationTier.T0_FULL ||
+        ((this.scheduler.getFrameIndex() + (rahrEntity?.bucket ?? 0)) % 3 === 0);
+
+      if (isDue && tier !== RahrSimulationTier.T4_DORMANT) {
+        const effectiveDt = (rahrEntity?.accumulatedDelta ?? 0) + clampedDelta;
+        if (rahrEntity) rahrEntity.accumulatedDelta = 0;
+        DecisionSystem.updateDecision(npc, this.scratchWorldContext, effectiveDt);
+        DecisionSystem.executeMovement(npc, effectiveDt);
+      } else if (rahrEntity) {
+        rahrEntity.accumulatedDelta += clampedDelta;
+      }
 
       const visual = this.npcVisuals.get(npc.id);
       if (visual) {
-        const npcY = this.terrainManager ? this.terrainManager.getHeightAt(npc.position.x, npc.position.z) : 0;
-        visual.setPosition(npc.position.x, npcY, npc.position.z);
-        visual.setRotationY(npc.rotationY);
-        visual.updateHealth(npc.health, npc.maxHealth);
         const isNpcMoving = (npc.velocity && Math.hypot(npc.velocity.x, npc.velocity.z) > 0.05) ||
                             (npc.targetPosition ? Math.hypot(npc.targetPosition.x - npc.position.x, npc.targetPosition.z - npc.position.z) > 0.3 : false);
-        visual.update(clampedDelta, isNpcMoving ? 1 : 0);
+        
+        // Throttled animation evaluation
+        const shouldAnim = !rahrEntity || this.scheduler.shouldEvaluateAnimation(rahrEntity);
+        if (shouldAnim) {
+          const npcY = this.terrainManager ? this.terrainManager.getHeightAt(npc.position.x, npc.position.z) : 0;
+          visual.setPosition(npc.position.x, npcY, npc.position.z);
+          visual.setRotationY(npc.rotationY);
+          visual.updateHealth(npc.health, npc.maxHealth);
+          visual.update(clampedDelta, isNpcMoving ? 1 : 0);
+          if (tier === RahrSimulationTier.T0_FULL) {
+            this.animEvalsFull++;
+          } else {
+            this.animEvalsReduced++;
+          }
+        }
 
-        // Guard attack against nearby raiders
+        // Guard attack against nearby raiders (using scratch combatant)
         if (npc.role === 'guard' && npc.activity === 'attacking' && raiders.length > 0) {
-          const guardCombatant: Combatant = {
-            id: npc.id,
-            name: npc.name,
-            team: 'ally',
-            x: npc.position.x,
-            y: 0,
-            z: npc.position.z,
-            rotationY: npc.rotationY,
-            hp: npc.health,
-            maxHp: npc.maxHealth,
-            attackDamage: npc.attackPower,
-            attackRange: npc.attackRange,
-            attackCooldown: 0,
-            armor: 7,
-            isDead: false
-          };
+          if (rahrEntity) this.interestGraph.setCombatCritical(npc.id, true);
+          const guardCombatant = this.scratchGuardCombatant;
+          guardCombatant.id = npc.id;
+          guardCombatant.name = npc.name;
+          guardCombatant.team = 'ally';
+          guardCombatant.x = npc.position.x;
+          guardCombatant.y = 0;
+          guardCombatant.z = npc.position.z;
+          guardCombatant.rotationY = npc.rotationY;
+          guardCombatant.hp = npc.health;
+          guardCombatant.maxHp = npc.maxHealth;
+          guardCombatant.attackDamage = npc.attackPower;
+          guardCombatant.attackRange = npc.attackRange;
+          guardCombatant.attackCooldown = 0;
+          guardCombatant.armor = 7;
+          guardCombatant.isDead = false;
           for (const raider of raiders) {
             const res = this.combatSystem.executeAttack(guardCombatant, raider, 1.0, 0.15);
             if (res) {
+              if (rahrEntity) this.interestGraph.setCombatCritical(npc.id, true);
+              this.interestGraph.setCombatCritical(raider.id, true);
               visual.triggerAttack();
               const rVis = this.raiderVisuals.get(raider.id);
               if (rVis) {
@@ -1321,39 +1553,63 @@ export class PlayCanvasApp {
       }
     }
 
-    // 7. Update Animals & Wildlife
-    const threatPositions = [
-      { id: 'hero', x: heroPos.x, z: heroPos.z, isHero: true, hp: heroPos.hp },
-      ...raiders.map(r => ({ id: r.id, x: r.x, z: r.z, isRaider: true, hp: r.hp }))
-    ];
-    this.animalSystem.update(clampedDelta, threatPositions);
-    for (const animal of this.animalSystem.getAnimals()) {
+    // 7. Update Animals & Wildlife (scratch array reuse)
+    this.scratchThreatPositions.length = 0;
+    this.scratchThreatPositions.push({ id: 'hero', x: heroPos.x, z: heroPos.z, isHero: true, hp: heroPos.hp });
+    for (let i = 0; i < raiderCount; i++) {
+      const r = raiders[i];
+      this.scratchThreatPositions.push({ id: r.id, x: r.x, z: r.z, isRaider: true, hp: r.hp });
+    }
+
+    const animals = this.animalSystem.getAnimals();
+    for (const animal of animals) {
+      const rahrEntity = this.interestGraph.getEntity(animal.id);
+      if (rahrEntity) {
+        this.interestGraph.updateEntityPosition(animal.id, animal.position.x, 0, animal.position.z);
+      }
+    }
+
+    this.animalSystem.update(clampedDelta, this.scratchThreatPositions);
+    for (const animal of animals) {
+      const rahrEntity = this.interestGraph.getEntity(animal.id);
+      const tier = rahrEntity ? rahrEntity.tier : RahrSimulationTier.T1_REDUCED;
       const aVis = this.animalVisuals.get(animal.id);
       if (aVis) {
         if (animal.health <= 0) {
           if (!aVis.isDead) aVis.triggerDeath();
           continue;
         }
-        const animalY = this.terrainManager ? this.terrainManager.getHeightAt(animal.position.x, animal.position.z) : 0;
-        aVis.setPosition(animal.position.x, animalY, animal.position.z);
-        aVis.setRotationY(animal.rotationY);
-        if (animal.attackTriggered) {
-          aVis.triggerAttack();
-          try { soundEngine.playMeleeAttack(); } catch {}
+
+        const shouldAnim = !rahrEntity || this.scheduler.shouldEvaluateAnimation(rahrEntity);
+        if (shouldAnim) {
+          const animalY = this.terrainManager ? this.terrainManager.getHeightAt(animal.position.x, animal.position.z) : 0;
+          aVis.setPosition(animal.position.x, animalY, animal.position.z);
+          aVis.setRotationY(animal.rotationY);
+          if (animal.attackTriggered) {
+            aVis.triggerAttack();
+            try { soundEngine.playMeleeAttack(); } catch {}
+          }
+          if (animal.damageFlashTimer && animal.damageFlashTimer > 0) {
+            aVis.triggerHitFlash();
+          }
+          const isMoving = animal.state === 'wander' || animal.state === 'flee' || animal.state === 'hunt';
+          aVis.update(clampedDelta, isMoving);
+          if (tier === RahrSimulationTier.T0_FULL) {
+            this.animEvalsFull++;
+          } else {
+            this.animEvalsReduced++;
+          }
         }
-        if (animal.damageFlashTimer && animal.damageFlashTimer > 0) {
-          aVis.triggerHitFlash();
-        }
-        const isMoving = animal.state === 'wander' || animal.state === 'flee' || animal.state === 'hunt';
-        aVis.update(clampedDelta, isMoving);
       }
     }
 
-    // 8. Update Hero Controller & Articulated Visual
-    this.heroController.update(
-      clampedDelta,
-      raiders.map(r => ({ id: r.id, x: r.x, z: r.z, isDead: r.isDead }))
-    );
+    // 8. Update Hero Controller & Articulated Visual (scratch array reuse)
+    this.scratchRaidersForHero.length = 0;
+    for (let i = 0; i < raiderCount; i++) {
+      const r = raiders[i];
+      this.scratchRaidersForHero.push({ id: r.id, x: r.x, z: r.z, isDead: r.isDead });
+    }
+    this.heroController.update(clampedDelta, this.scratchRaidersForHero);
 
     const updatedHeroPos = this.heroController.getPosition();
     const heroVel = this.heroController.profile.velocity;
@@ -1365,22 +1621,36 @@ export class PlayCanvasApp {
       this.heroVisual.setRotationY(updatedHeroPos.rotationY);
       this.heroVisual.updateHealth(updatedHeroPos.hp, updatedHeroPos.maxHp);
       this.heroVisual.update(clampedDelta, isHeroMoving ? 1 : 0);
+      this.animEvalsFull++; // Hero is permanently T0
     }
 
     // Update Battlefield Loot Magnet & Proximity Pickup
     this.lootSystem.update(clampedDelta, updatedHeroPos);
 
-    // 9. Update Army Squads & Formations
+    // 9. Update Army Squads & Formations (scratch array reuse)
+    this.scratchRaidersForArmy.length = 0;
+    for (let i = 0; i < raiderCount; i++) {
+      const r = raiders[i];
+      this.scratchRaidersForArmy.push({ id: r.id, x: r.x, z: r.z, team: 'enemy', isDead: r.isDead });
+    }
     this.armyController.update(
       clampedDelta,
       { x: updatedHeroPos.x, y: updatedHeroPos.y, z: updatedHeroPos.z, rotationY: updatedHeroPos.rotationY },
-      raiders.map(r => ({ id: r.id, x: r.x, z: r.z, team: 'enemy', isDead: r.isDead }))
+      this.scratchRaidersForArmy
     );
 
     // Sync Squad Visuals & execute melee/ranged combat
     const squad = this.armyController.getSquad('squad_royal_guard');
     if (squad) {
       for (const unit of squad.units) {
+        const rahrUnit = this.interestGraph.getEntity(unit.id);
+        if (rahrUnit) {
+          this.interestGraph.updateEntityPosition(unit.id, unit.x, unit.y, unit.z);
+          if (unit.isEngaged) {
+            this.interestGraph.setCombatCritical(unit.id, true);
+          }
+        }
+
         const visual = this.squadVisuals.get(unit.id);
         if (visual) {
           const unitY = this.terrainManager ? this.terrainManager.getHeightAt(unit.x, unit.z) : 0;
@@ -1390,28 +1660,37 @@ export class PlayCanvasApp {
 
           const isUnitMoving = (unit.state === 'MOVING' || unit.state === 'FORMING' || unit.state === 'RETREATING' || unit.state === 'ATTACKING') &&
                                (unit.targetPosition ? Math.hypot(unit.targetPosition.x - unit.x, unit.targetPosition.z - unit.z) > 0.25 : false);
-          visual.update(clampedDelta, isUnitMoving ? 1 : 0);
+
+          const shouldAnim = !rahrUnit || this.scheduler.shouldEvaluateAnimation(rahrUnit);
+          if (shouldAnim) {
+            visual.update(clampedDelta, isUnitMoving ? 1 : 0);
+            if (rahrUnit?.tier === RahrSimulationTier.T0_FULL) {
+              this.animEvalsFull++;
+            } else {
+              this.animEvalsReduced++;
+            }
+          }
 
           if (unit.isEngaged && unit.stats.attackCooldown <= 0) {
+            if (rahrUnit) this.interestGraph.setCombatCritical(unit.id, true);
             visual.triggerAttack();
             unit.stats.attackCooldown = 1.0 / unit.stats.attackSpeed;
 
-            const unitCombatant: Combatant = {
-              id: unit.id,
-              name: unit.name,
-              team: 'ally',
-              x: unit.x,
-              y: unit.y,
-              z: unit.z,
-              rotationY: unit.rotationY,
-              hp: unit.stats.hp,
-              maxHp: unit.stats.maxHp,
-              attackDamage: unit.stats.attackDamage,
-              attackRange: unit.stats.attackRange,
-              attackCooldown: 0,
-              armor: unit.stats.armor,
-              isDead: false
-            };
+            const unitCombatant = this.scratchUnitCombatant;
+            unitCombatant.id = unit.id;
+            unitCombatant.name = unit.name;
+            unitCombatant.team = 'ally';
+            unitCombatant.x = unit.x;
+            unitCombatant.y = unit.y;
+            unitCombatant.z = unit.z;
+            unitCombatant.rotationY = unit.rotationY;
+            unitCombatant.hp = unit.stats.hp;
+            unitCombatant.maxHp = unit.stats.maxHp;
+            unitCombatant.attackDamage = unit.stats.attackDamage;
+            unitCombatant.attackRange = unit.stats.attackRange;
+            unitCombatant.attackCooldown = 0;
+            unitCombatant.armor = unit.stats.armor;
+            unitCombatant.isDead = false;
 
             for (const raider of raiders) {
               if (unit.type === 'archer') {
@@ -1465,23 +1744,22 @@ export class PlayCanvasApp {
       }
     }
 
-    // 11. Raider attacks against Hero or Vanguard
-    const heroCombatant: Combatant = {
-      id: this.heroController.profile.id,
-      name: this.heroController.profile.name,
-      team: 'player',
-      x: updatedHeroPos.x,
-      y: updatedHeroPos.y,
-      z: updatedHeroPos.z,
-      rotationY: updatedHeroPos.rotationY,
-      hp: updatedHeroPos.hp,
-      maxHp: updatedHeroPos.maxHp,
-      attackDamage: updatedHeroPos.attackDamage,
-      attackRange: 2.4,
-      attackCooldown: 0,
-      armor: updatedHeroPos.defense,
-      isDead: false
-    };
+    // 11. Raider attacks against Hero or Vanguard (using scratch hero combatant)
+    const heroCombatant = this.scratchHeroCombatant;
+    heroCombatant.id = this.heroController.profile.id;
+    heroCombatant.name = this.heroController.profile.name;
+    heroCombatant.team = 'player';
+    heroCombatant.x = updatedHeroPos.x;
+    heroCombatant.y = updatedHeroPos.y;
+    heroCombatant.z = updatedHeroPos.z;
+    heroCombatant.rotationY = updatedHeroPos.rotationY;
+    heroCombatant.hp = updatedHeroPos.hp;
+    heroCombatant.maxHp = updatedHeroPos.maxHp;
+    heroCombatant.attackDamage = updatedHeroPos.attackDamage;
+    heroCombatant.attackRange = 2.4;
+    heroCombatant.attackCooldown = 0;
+    heroCombatant.armor = updatedHeroPos.defense;
+    heroCombatant.isDead = false;
 
     for (const raider of raiders) {
       if (raider.attackCooldown <= 0) {
@@ -1507,15 +1785,58 @@ export class PlayCanvasApp {
     // 12. Camera Follow
     this.updateCameraFollow(clampedDelta, updatedHeroPos.x, updatedHeroPos.z);
 
-    // 13. Update Metrics
-    const totalEntities =
-      1 +
-      (squad?.units.length ?? 0) +
-      this.npcs.length +
-      this.animalSystem.getAnimals().length +
-      raiders.length +
-      (this.trainingArena.challenger ? 1 : 0);
+    // 13. Update Metrics (RAHR Telemetry)
+    const squadCount = squad?.units.length ?? 0;
+    const aiAgents = squadCount + this.npcs.length + this.animalSystem.getAnimals().length + raiders.length + (this.trainingArena.challenger ? 1 : 0);
+    const totalEntities = 1 + aiAgents;
     this.performanceMonitor.setEntityCount(totalEntities);
+
+    let activeAnimations = isHeroMoving ? 1 : 0;
+    if (squad) {
+      for (let i = 0; i < squad.units.length; i++) {
+        const u = squad.units[i];
+        if (u.state === 'MOVING' || u.state === 'FORMING' || u.state === 'ATTACKING') activeAnimations++;
+      }
+    }
+    for (let i = 0; i < this.npcs.length; i++) {
+      const n = this.npcs[i];
+      if (n.velocity && (n.velocity.x !== 0 || n.velocity.z !== 0)) activeAnimations++;
+    }
+    const allFauna = this.animalSystem.getAnimals();
+    for (let i = 0; i < allFauna.length; i++) {
+      const a = allFauna[i];
+      if (a.state === 'wander' || a.state === 'flee' || a.state === 'hunt') activeAnimations++;
+    }
+
+    const rahr = this.performanceMonitor.getMetrics();
+    // Keep monitor in sync with live counts & RAHR Phase 2 metrics
+    this.performanceMonitor['rahrMonitor']?.setSimulationCounts({
+      activeObjects: totalEntities,
+      activeAIAgents: aiAgents,
+      activeAnimations,
+      activePhysicsBodies: 1
+    });
+
+    this.performanceMonitor['rahrMonitor']?.setRahrPhase2Metrics({
+      tierCounts: {
+        t0: this.interestGraph.t0Count,
+        t1: this.interestGraph.t1Count,
+        t2: this.interestGraph.t2Count,
+        t3: this.interestGraph.t3Count,
+        t4: this.interestGraph.t4Count
+      },
+      fullAIUpdatesPerSec: this.scheduler.fullAIUpdatesPerSec,
+      reducedAIUpdatesPerSec: this.scheduler.reducedAIUpdatesPerSec,
+      deferredUpdates: this.scheduler.deferredUpdates,
+      navRequestsPerSec: this.navigationManager.pathRequestsPerSec,
+      animEvalsPerFrame: this.animEvalsFull,
+      animReducedPerFrame: this.animEvalsReduced,
+      regionsRejected: this.interestGraph.regionsRejected,
+      cellsRejected: this.interestGraph.cellsRejected,
+      groupsRejected: this.interestGraph.groupsRejected,
+      entitiesDetailedEval: this.interestGraph.entitiesDetailedEval,
+      rahrSchedulerCpuMs: this.scheduler.schedulerCpuMs
+    });
   }
 
   private updateArrowProjectiles(delta: number): void {
@@ -1569,6 +1890,7 @@ export class PlayCanvasApp {
           visual.destroy();
           this.raiderVisuals.delete(raider.id);
         }
+        this.interestGraph.removeEntity(raider.id);
         continue;
       }
 
@@ -1587,13 +1909,30 @@ export class PlayCanvasApp {
           visual.loadGLB('/assets/medieval/heroes/guardian.glb', 1.05);
         }
         this.raiderVisuals.set(raider.id, visual);
+        this.interestGraph.registerEntity(
+          raider.id,
+          'raider',
+          { x: raider.x, y: 0, z: raider.z },
+          'raider_wave'
+        );
       }
 
+      this.interestGraph.updateEntityPosition(raider.id, raider.x, 0, raider.z);
       const raiderY = this.terrainManager ? this.terrainManager.getHeightAt(raider.x, raider.z) : 0;
       visual.setPosition(raider.x, raiderY, raider.z);
       visual.setRotationY(raider.rotationY);
       visual.updateHealth(raider.hp, raider.maxHp);
-      visual.update(0.016, 0);
+
+      const rahrRaider = this.interestGraph.getEntity(raider.id);
+      const isMoving = Math.hypot(raider.targetObjective.x - raider.x, raider.targetObjective.z - raider.z) > 0.4;
+      if (!rahrRaider || this.scheduler.shouldEvaluateAnimation(rahrRaider)) {
+        visual.update(0.016, isMoving ? 1 : 0);
+        if (rahrRaider?.tier === RahrSimulationTier.T0_FULL) {
+          this.animEvalsFull++;
+        } else {
+          this.animEvalsReduced++;
+        }
+      }
     }
   }
 
