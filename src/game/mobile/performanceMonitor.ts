@@ -41,6 +41,13 @@ export interface PerformanceMetrics {
   groupsRejected?: number;
   entitiesDetailedEval?: number;
   rahrSchedulerCpuMs?: number;
+
+  // RAHR Phase 3 Visibility & BVH telemetry
+  bvhCandidates?: number;
+  frustumRejected?: number;
+  rahrRejected?: number;
+  occlusionRejected?: number;
+  bvhEvaluationMs?: number;
 }
 
 export class PerformanceMonitor {
@@ -167,7 +174,12 @@ export class PerformanceMonitor {
       cellsRejected: rahr.cellsRejected,
       groupsRejected: rahr.groupsRejected,
       entitiesDetailedEval: rahr.entitiesDetailedEval,
-      rahrSchedulerCpuMs: rahr.rahrSchedulerCpuMs
+      rahrSchedulerCpuMs: rahr.rahrSchedulerCpuMs,
+      bvhCandidates: rahr.bvhCandidates,
+      frustumRejected: rahr.frustumRejected,
+      rahrRejected: rahr.rahrRejected,
+      occlusionRejected: rahr.occlusionRejected,
+      bvhEvaluationMs: rahr.bvhEvaluationMs
     };
   }
 }

@@ -90,6 +90,27 @@ export const PerformanceOverlay: React.FC<PerformanceOverlayProps> = ({
             </div>
           )}
 
+          {metrics.bvhCandidates !== undefined && (
+            <div className="border-b border-stone-800/80 pb-1 text-[11px]">
+              <div className="flex justify-between text-stone-400 mb-0.5">
+                <span>OptiPixel Culling</span>
+                <span className="text-cyan-400 font-bold">BVH: {metrics.bvhCandidates}</span>
+              </div>
+              <div className="flex justify-between text-[10px] text-stone-400">
+                <span>Culled (Frust/Occ)</span>
+                <span className="text-emerald-400 font-semibold">
+                  {metrics.frustumRejected ?? 0} Frust / {metrics.occlusionRejected ?? 0} Occ
+                </span>
+              </div>
+              {metrics.bvhEvaluationMs !== undefined && (
+                <div className="flex justify-between text-[10px] text-stone-400 mt-0.5">
+                  <span>BVH Eval Time</span>
+                  <span className="text-cyan-300 font-mono">{metrics.bvhEvaluationMs.toFixed(2)}ms</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {metrics.jsHeapUsedMB !== undefined && metrics.jsHeapUsedMB !== null && (
             <div className="flex justify-between items-center border-b border-stone-800/80 pb-1">
               <span className="text-stone-400 text-[11px]">JS Heap</span>

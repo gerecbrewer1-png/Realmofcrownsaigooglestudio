@@ -53,6 +53,13 @@ export interface RahrTelemetryMetrics {
   entitiesDetailedEval: number;
   rahrSchedulerCpuMs: number;
 
+  // RAHR Phase 3 Visibility & OptiPixel BVH Telemetry
+  bvhCandidates: number;
+  frustumRejected: number;
+  rahrRejected: number;
+  occlusionRejected: number;
+  bvhEvaluationMs: number;
+
   // Memory & Throttling
   jsHeapUsedMB: number | null;
   isBatteryThrottling: boolean;
@@ -102,6 +109,13 @@ export class RahrPerformanceMonitor {
   private groupsRejected = 0;
   private entitiesDetailedEval = 0;
   private rahrSchedulerCpuMs = 0;
+
+  // RAHR Phase 3 Visibility & OptiPixel BVH properties
+  private bvhCandidates = 0;
+  private frustumRejected = 0;
+  private rahrRejected = 0;
+  private occlusionRejected = 0;
+  private bvhEvaluationMs = 0;
 
   constructor(initialPreset: RahrQualityPreset = 'auto', devEnabled = true) {
     this.preset = initialPreset;
@@ -178,6 +192,28 @@ export class RahrPerformanceMonitor {
     if (metrics.groupsRejected !== undefined) this.groupsRejected = metrics.groupsRejected;
     if (metrics.entitiesDetailedEval !== undefined) this.entitiesDetailedEval = metrics.entitiesDetailedEval;
     if (metrics.rahrSchedulerCpuMs !== undefined) this.rahrSchedulerCpuMs = metrics.rahrSchedulerCpuMs;
+  }
+
+  public setRahrPhase3Metrics(metrics: {
+    bvhCandidates?: number;
+    frustumRejected?: number;
+    rahrRejected?: number;
+    occlusionRejected?: number;
+    bvhEvaluationMs?: number;
+    forwardDrawCalls?: number;
+    shadowDrawCalls?: number;
+    visibleObjects?: number;
+    drawCalls?: number;
+  }): void {
+    if (metrics.bvhCandidates !== undefined) this.bvhCandidates = metrics.bvhCandidates;
+    if (metrics.frustumRejected !== undefined) this.frustumRejected = metrics.frustumRejected;
+    if (metrics.rahrRejected !== undefined) this.rahrRejected = metrics.rahrRejected;
+    if (metrics.occlusionRejected !== undefined) this.occlusionRejected = metrics.occlusionRejected;
+    if (metrics.bvhEvaluationMs !== undefined) this.bvhEvaluationMs = metrics.bvhEvaluationMs;
+    if (metrics.forwardDrawCalls !== undefined) this.forwardDrawCalls = metrics.forwardDrawCalls;
+    if (metrics.shadowDrawCalls !== undefined) this.shadowDrawCalls = metrics.shadowDrawCalls;
+    if (metrics.visibleObjects !== undefined) this.visibleObjects = metrics.visibleObjects;
+    if (metrics.drawCalls !== undefined) this.drawCalls = metrics.drawCalls;
   }
 
   /**
@@ -301,6 +337,11 @@ export class RahrPerformanceMonitor {
       groupsRejected: this.groupsRejected,
       entitiesDetailedEval: this.entitiesDetailedEval,
       rahrSchedulerCpuMs: this.rahrSchedulerCpuMs,
+      bvhCandidates: this.bvhCandidates,
+      frustumRejected: this.frustumRejected,
+      rahrRejected: this.rahrRejected,
+      occlusionRejected: this.occlusionRejected,
+      bvhEvaluationMs: this.bvhEvaluationMs,
       jsHeapUsedMB: heapUsedMB,
       isBatteryThrottling: this.fps < 30,
       enabled: this.enabled
