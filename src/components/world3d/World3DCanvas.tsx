@@ -465,6 +465,7 @@ interface WorldAnimator {
         container.removeChild(renderer.domElement);
       }
       renderer.dispose();
+      renderer.forceContextLoss();
     };
   }, []);
 

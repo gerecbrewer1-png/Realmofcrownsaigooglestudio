@@ -1470,6 +1470,7 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
       window.removeEventListener('resize', handleResize);
       portLife.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       if (renderer.domElement.parentElement) {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }

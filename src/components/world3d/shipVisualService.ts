@@ -6,6 +6,7 @@
  */
 
 import * as THREE from 'three';
+import { ShipInstanceManager, InstancedItemTransform } from './ShipInstanceManager';
 
 export interface ShipSpec {
   id: string;
@@ -791,6 +792,8 @@ export class ShipVisualService {
     const gunPortsPerSide = Math.min(8, Math.floor(spec.cannons / 2));
     const gunSpacing = (length * 0.55) / (gunPortsPerSide + 1);
 
+    const cannonTransforms: InstancedItemTransform[] = [];
+
     for (let side = -1; side <= 1; side += 2) {
       for (let i = 1; i <= gunPortsPerSide; i++) {
         const zPos = -halfLen * 0.3 + i * gunSpacing;
@@ -803,13 +806,18 @@ export class ShipVisualService {
         lid.rotation.z = side * 0.55; // Angled open upward
         hullGroup.add(lid);
 
-        // Heavy Iron Cannon Barrel
-        const barrelGeo = new THREE.CylinderGeometry(0.12, 0.16, 1.2, 6);
-        barrelGeo.rotateZ(side * Math.PI * 0.5);
-        const barrel = new THREE.Mesh(barrelGeo, cannonMat);
-        barrel.position.set(xPos + side * 0.2, hullHeight * 0.65, zPos);
-        hullGroup.add(barrel);
+        // Collect Heavy Iron Cannon Barrel Transform
+        cannonTransforms.push({
+          position: new THREE.Vector3(xPos + side * 0.2, hullHeight * 0.65, zPos),
+          rotation: new THREE.Euler(0, 0, side * Math.PI * 0.5)
+        });
       }
+    }
+
+    // Use Phase 2 GPU Instancing for Cannons
+    if (cannonTransforms.length > 0) {
+      const instancedCannons = ShipInstanceManager.createInstancedCannons(cannonTransforms);
+      hullGroup.add(instancedCannons);
     }
 
     shipGroup.add(hullGroup);
@@ -1139,16 +1147,22 @@ export class ShipVisualService {
     // Batched cannon barrels (simplified - no hinged lids or wheels)
     const gunPortsPerSide = Math.min(6, Math.floor(spec.cannons / 2));
     const gunSpacing = (length * 0.55) / (gunPortsPerSide + 1);
+    const cannonTransforms: InstancedItemTransform[] = [];
+
     for (let side = -1; side <= 1; side += 2) {
       for (let i = 1; i <= gunPortsPerSide; i++) {
         const zPos = -halfLen * 0.3 + i * gunSpacing;
         const xPos = side * (halfBeam * 0.98);
-        const barrelGeo = new THREE.CylinderGeometry(0.12, 0.16, 1.1, 5);
-        barrelGeo.rotateZ(side * Math.PI * 0.5);
-        const barrel = new THREE.Mesh(barrelGeo, cannonMat);
-        barrel.position.set(xPos + side * 0.15, hullHeight * 0.65, zPos);
-        hullGroup.add(barrel);
+        cannonTransforms.push({
+          position: new THREE.Vector3(xPos + side * 0.15, hullHeight * 0.65, zPos),
+          rotation: new THREE.Euler(0, 0, side * Math.PI * 0.5)
+        });
       }
+    }
+
+    if (cannonTransforms.length > 0) {
+      const instancedCannons = ShipInstanceManager.createInstancedCannons(cannonTransforms);
+      hullGroup.add(instancedCannons);
     }
 
     // Stern Flagstaff

@@ -337,30 +337,8 @@ export class VoyageNetworkClient {
     group.add(sailMesh);
     sailMeshes.push(sailMesh);
 
-    // Floating overhead nameplate canvas texture
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = 'rgba(10, 20, 30, 0.75)';
-      ctx.roundRect(4, 4, 248, 56, 8);
-      ctx.fill();
-      ctx.strokeStyle = isPirate ? '#ff4444' : '#44bbff';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 22px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(pkt.name, 128, 38);
-    }
-    const nameTexture = new THREE.CanvasTexture(canvas);
-    const nameSpriteMat = new THREE.SpriteMaterial({ map: nameTexture, transparent: true });
-    const nameSprite = new THREE.Sprite(nameSpriteMat);
-    nameSprite.position.set(0, 15.0, 0);
-    nameSprite.scale.set(12, 3, 1);
-    group.add(nameSprite);
+    // Nameplates and Health bars will now be batched by InstancedUIManager
+    // inside NavalSeaCanvas.tsx to eliminate DOM / Sprite draw call overhead.
 
     this.scene.add(group);
 

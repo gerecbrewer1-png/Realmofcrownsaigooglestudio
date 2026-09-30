@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Realm of Crowns - Voyage Object Pool & Zero-Allocation Math Buffers (Phase 2.6)
  * 
  * Eliminates garbage collection pressure and per-frame heap allocations during
@@ -49,8 +49,24 @@ export class VoyageObjectPool {
       this.smokeMat = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.65 });
     }
 
+    // Re-add existing pool objects to the new scene
+    this.ballPool.forEach(b => {
+      b.active = false;
+      b.mesh.visible = false;
+      scene.add(b.mesh);
+    });
+    this.particlePool.forEach(p => {
+      p.active = false;
+      p.mesh.visible = false;
+      scene.add(p.mesh);
+    });
+
+    // Determine how many new ones to create
+    const ballsToCreate = Math.max(0, initialBalls - this.ballPool.length);
+    const particlesToCreate = Math.max(0, initialParticles - this.particlePool.length);
+
     // Pre-populate cannonballs
-    for (let i = 0; i < initialBalls; i++) {
+    for (let i = 0; i < ballsToCreate; i++) {
       const mesh = new THREE.Mesh(this.ballGeo, this.ballMat);
       mesh.visible = false;
       scene.add(mesh);
@@ -67,7 +83,7 @@ export class VoyageObjectPool {
     }
 
     // Pre-populate particles
-    for (let i = 0; i < initialParticles; i++) {
+    for (let i = 0; i < particlesToCreate; i++) {
       const mesh = new THREE.Mesh(this.particleGeo, this.smokeMat.clone());
       mesh.visible = false;
       scene.add(mesh);
@@ -180,5 +196,18 @@ export class VoyageObjectPool {
       p.active = false;
       p.mesh.visible = false;
     });
+  }
+
+  public static dispose() {
+    this.ballPool.forEach(b => {
+      if (b.mesh.parent) b.mesh.parent.remove(b.mesh);
+    });
+    this.particlePool.forEach(p => {
+      if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
+    });
+    
+    // We keep the arrays and geometry/materials alive for the next scene 
+    // to avoid recompiling shaders, just remove them from the scene graph.
+    this.reset();
   }
 }

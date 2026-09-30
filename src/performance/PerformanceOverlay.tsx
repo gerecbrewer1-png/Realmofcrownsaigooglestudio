@@ -27,10 +27,10 @@ export function PerformanceOverlay() {
       <div>Draw Calls: {stats.drawCalls}</div>
       <div>Triangles: {stats.triangles}</div>
       <hr style={{ borderColor: '#333' }} />
-      <div>>16.67ms: {stats.buckets?.under25 + stats.buckets?.under33 + stats.buckets?.under50 + stats.buckets?.under100 + stats.buckets?.over100 || 0}</div>
-      <div>>33.33ms: {stats.buckets?.under50 + stats.buckets?.under100 + stats.buckets?.over100 || 0}</div>
-      <div>>50ms: {stats.buckets?.under100 + stats.buckets?.over100 || 0}</div>
-      <div>>100ms: {stats.buckets?.over100 || 0}</div>
+      <div>&gt;16.67ms: {stats.buckets?.under25 + stats.buckets?.under33 + stats.buckets?.under50 + stats.buckets?.under100 + stats.buckets?.over100 || 0}</div>
+      <div>&gt;33.33ms: {stats.buckets?.under50 + stats.buckets?.under100 + stats.buckets?.over100 || 0}</div>
+      <div>&gt;50ms: {stats.buckets?.under100 + stats.buckets?.over100 || 0}</div>
+      <div>&gt;100ms: {stats.buckets?.over100 || 0}</div>
     </div>
   );
 }

@@ -583,6 +583,7 @@ export const Kingdom3DCanvas: React.FC<Kingdom3DCanvasProps> = ({
         heroAura.dispose();
       }
       renderer.dispose();
+      renderer.forceContextLoss();
     };
   }, [buildings, queue, commander, castleLevel, updateCameraPosition]);
 

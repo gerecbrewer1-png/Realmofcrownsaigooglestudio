@@ -24,6 +24,7 @@ import { VoyageAreaOfInterest } from './VoyageAreaOfInterest';
 import { MMOWorldPartitionManager, NetworkLOD, MMOAuthoritativeEntity } from './MMOWorldPartition';
 import { VoyageNetworkClient } from './VoyageNetworkClient';
 import { VoyageCollisionSystem } from './VoyageCollisionSystem';
+import { InstancedUIManager } from '../../rendering/InstancedUIManager';
 import { soundEngine } from '../../audio/soundEngine';
 import { ISLAND_HAVENS, NATIONS, IslandHavenSpec } from '../../data/navalCatalog';
 import { auth } from '../../firebase/client';
@@ -529,6 +530,10 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       networkClient.connect();
       (window as any).__VOYAGE_NETWORK_CLIENT__ = networkClient;
     })();
+
+    // 7. Initialize Batched WebGL Instanced UI (Phase 17)
+    const uiManager = new InstancedUIManager();
+    scene.add(uiManager.group);
 
     const enemySpecs: EnemyShip[] = [];
     const fleetTemplates: Array<{ id: string; name: string; type: string; faction: FactionId; x: number; z: number; heading: number }> = [
@@ -1468,6 +1473,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         }
       );
 
+      // --- BATCHED UI UPDATES ---
+      uiManager.beginUpdate();
+
       // Animate visible ship secondary details & sinking ships
       enemySpecs.forEach((enemy) => {
         if (enemy.isSinking) {
@@ -1510,7 +1518,35 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         if (enemy.mesh.visible && enemy.mesh.userData?.pennantNode) {
           enemy.mesh.userData.pennantNode.rotation.y = Math.PI * 0.5 + Math.sin(globalTime * 4.6 + enemy.pos.x) * 0.26;
         }
+
+        if (enemy.mesh.visible) {
+          const uiPos = VoyageObjectPool.scratchVec1.copy(enemy.pos);
+          uiPos.y += 18.0;
+          uiManager.addNameplate(uiPos, enemy.name, enemy.faction === 'pirates', 3.0);
+          uiPos.y -= 1.5;
+          uiManager.addHealthBar(uiPos, Math.max(0, enemy.hull / enemy.hullMax), 4.0, 0.4);
+        }
       });
+
+      if (networkClient) {
+        for (const remote of networkClient.getRemoteEntities().values()) {
+          const uiPos = VoyageObjectPool.scratchVec1.copy(remote.group.position);
+          uiPos.y += 18.0;
+          const isPirate = remote.faction === 'pirates';
+          uiManager.addNameplate(uiPos, remote.name, isPirate, 3.0);
+          uiPos.y -= 1.5;
+          uiManager.addHealthBar(uiPos, Math.max(0, remote.health / remote.maxHealth), 4.0, 0.4);
+        }
+      }
+
+      // Add Player's own nameplate and health bar
+      const playerUIPos = VoyageObjectPool.scratchVec1.copy(playerState.pos);
+      playerUIPos.y += 18.0;
+      uiManager.addNameplate(playerUIPos, auth.currentUser?.displayName || 'You', false, 3.0);
+      playerUIPos.y -= 1.5;
+      uiManager.addHealthBar(playerUIPos, Math.max(0, playerState.hull / playerState.hullMax), 4.0, 0.4);
+
+      uiManager.endUpdate();
 
       // Spatial query for nearest target enemy (O(1) local bucket lookup instead of O(N) scan)
       const nearestSpatial = fleetManager.getSpatialGrid().queryNearest(
@@ -1909,12 +1945,15 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       window.removeEventListener('pointerup', onPointerUp);
       dom.removeEventListener('wheel', onWheel);
       VoyageReflectionManager.dispose();
+      VoyageObjectPool.dispose();
+      uiManager.dispose();
       networkClient?.destroy();
       soundEngine.stopNavalTrack();
       if (renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
       renderer.dispose();
+      renderer.forceContextLoss();
       waterGeo.dispose();
       (water as any).material?.dispose?.();
       waterNormalMap.dispose();
