@@ -1098,7 +1098,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         // Phase 2.9: Server-Authoritative Input-Ack Reconciliation & Error Tiers
         if (networkClient) {
           const authState = networkClient.getAuthoritativePlayerState();
-          if (authState && authState.serverTick > playerState.lastReconciledTick) {
+          if (authState) {
             const rec = networkClient.reconcilePlayerState(
               { x: playerState.pos.x, z: playerState.pos.z },
               playerState.heading,
@@ -1117,7 +1117,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
             if (Number.isFinite(rec.speedKnots)) {
               playerState.speedKnots = rec.speedKnots;
             }
-            playerState.lastReconciledTick = authState.serverTick;
+            if (authState.serverTick > playerState.lastReconciledTick) {
+              playerState.lastReconciledTick = authState.serverTick;
+            }
           }
         }
 

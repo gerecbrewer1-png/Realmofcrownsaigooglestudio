@@ -450,7 +450,7 @@ export class VoyageNetworkClient {
     const now = performance.now();
 
     for (const remote of this.remoteEntities.values()) {
-      const transform = remote.interpolator.sample(now, 100);
+      const transform = remote.interpolator.sample(now, 150);
       remote.group.position.x = transform.x;
       remote.group.position.z = transform.z;
       remote.group.rotation.y = transform.heading;

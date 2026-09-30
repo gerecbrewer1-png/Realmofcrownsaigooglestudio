@@ -232,7 +232,7 @@ export class ClientEntityInterpolator {
     const newest = this.snapshots[this.snapshots.length - 1];
     if (targetTime >= newest.timestamp) {
       const dtSec = Math.min((targetTime - newest.timestamp) / 1000, 0.5);
-      const moveDist = (newest.speedKnots * 0.514444) * dtSec;
+      const moveDist = (newest.speedKnots * 1.8) * dtSec;
       this.currentInterpolated.x = newest.x + Math.sin(newest.heading) * moveDist;
       this.currentInterpolated.z = newest.z + Math.cos(newest.heading) * moveDist;
       this.currentInterpolated.heading = newest.heading;
