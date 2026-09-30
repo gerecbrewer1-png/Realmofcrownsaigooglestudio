@@ -455,7 +455,7 @@ export class RahrVisibilityPipeline {
       }
     }
 
-    this.metrics.bvhCandidates = bvhVisibleSet.length ? (bvhVisibleSet as any).length : bvhVisibleSet.size;
+    this.metrics.bvhCandidates = bvhVisibleSet.size;
 
     // -----------------------------------------------------------------
     // STAGE 3, 4, 5, 6: FRUSTUM NARROWPHASE, LOD, OCCLUSION & RENDERING

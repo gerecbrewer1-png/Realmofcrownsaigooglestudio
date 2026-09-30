@@ -24,6 +24,7 @@ import { VoyageAreaOfInterest } from './VoyageAreaOfInterest';
 import { MMOWorldPartitionManager, NetworkLOD, MMOAuthoritativeEntity } from './MMOWorldPartition';
 import { VoyageNetworkClient } from './VoyageNetworkClient';
 import { VoyageCollisionSystem } from './VoyageCollisionSystem';
+import { PlayerMovementController } from '../../shared/movement/index';
 import { InstancedUIManager } from '../../rendering/InstancedUIManager';
 import { soundEngine } from '../../audio/soundEngine';
 import { ISLAND_HAVENS, NATIONS, IslandHavenSpec } from '../../data/navalCatalog';
@@ -487,6 +488,25 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
     const playerWake = ShipVisualService.createWakeMesh(playerSpec.length, playerSpec.beam);
     playerMesh.add(playerWake);
+
+    const movementController = new PlayerMovementController({
+      x: persistentPlayerPosRef.current.x,
+      y: persistentPlayerPosRef.current.y,
+      z: persistentPlayerPosRef.current.z,
+      heading: persistentPlayerHeadingRef.current,
+      speedKnots: persistentPlayerSpeedRef.current,
+      rudder: 0,
+      sailSetting: persistentPlayerSailSettingRef.current,
+      hull: persistentPlayerHullRef.current ?? playerSpec.hullMax,
+      maxHull: playerSpec.hullMax,
+      sails: persistentPlayerSailsRef.current ?? playerSpec.sailsMax,
+      maxSails: playerSpec.sailsMax,
+      baseSpeed: playerSpec.baseSpeed,
+      turnRate: playerSpec.turnRate,
+      length: playerSpec.length,
+      beam: playerSpec.beam,
+    });
+    (window as any).__MOVEMENT_CONTROLLER__ = movementController;
 
     const playerState = {
       pos: persistentPlayerPosRef.current.clone(),
@@ -1064,75 +1084,57 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       // Wind dynamics (Wind blows from windAngle)
       const windFromRad = (statusRef.current.windFromDeg * Math.PI) / 180;
 
-      // --- PLAYER SHIP CONTROLS & PHYSICS ---
+      // --- PLAYER SHIP CONTROLS & PRODUCTION MOVEMENT CORE (Phase 18) ---
       if (playerState.hull > 0) {
-        // Rudder turning
+        // 1. Gather player input intents
         let rudderTarget = 0;
         if (keysDown.has('KeyA') || keysDown.has('ArrowLeft')) rudderTarget = 1;
         if (keysDown.has('KeyD') || keysDown.has('ArrowRight')) rudderTarget = -1;
 
-        playerState.rudder = THREE.MathUtils.lerp(playerState.rudder, rudderTarget, dt * 4.0);
+        let sailAdjustDelta = 0;
+        if (keysDown.has('KeyW') || keysDown.has('ArrowUp')) sailAdjustDelta += dt * 0.5;
+        if (keysDown.has('KeyS') || keysDown.has('ArrowDown')) sailAdjustDelta -= dt * 0.5;
 
-        // Sail adjustments with W / S
-        if (keysDown.has('KeyW') || keysDown.has('ArrowUp')) {
-          playerState.sailSetting = Math.min(1.0, playerState.sailSetting + dt * 0.5);
-        }
-        if (keysDown.has('KeyS') || keysDown.has('ArrowDown')) {
-          playerState.sailSetting = Math.max(0.0, playerState.sailSetting - dt * 0.5);
-        }
-
-        // Calculate speed relative to wind
-        const angleToWind = Math.abs(THREE.MathUtils.euclideanModulo(playerState.heading - windFromRad + Math.PI, Math.PI * 2) - Math.PI);
-        // Broad reach (angle ~ 90°-135°) gives highest multiplier
-        let windMultiplier = 0.75 + Math.sin(angleToWind) * 0.25;
-        if (angleToWind < 0.4) windMultiplier = 0.5; // in irons (upwind)
-
-        const sailHealthMult = playerState.sails / playerState.sailsMax;
-        const targetKnots = playerSpec.baseSpeed * playerState.sailSetting * windMultiplier * sailHealthMult;
-        playerState.speedKnots = THREE.MathUtils.lerp(playerState.speedKnots, targetKnots, dt * 1.2);
-
-        // Turn rate scales with forward speed
-        const effectiveTurnRate = (playerSpec.turnRate * (Math.PI / 180) * (playerState.speedKnots / playerSpec.baseSpeed + 0.2)) * playerState.rudder;
-        playerState.heading += effectiveTurnRate * dt;
-
-        // Phase 2.9: Server-Authoritative Input-Ack Reconciliation & Error Tiers
+        // 2. Reconcile with server authoritative state (if connected)
         if (networkClient) {
           const authState = networkClient.getAuthoritativePlayerState();
-          if (authState) {
-            const rec = networkClient.reconcilePlayerState(
-              { x: playerState.pos.x, z: playerState.pos.z },
-              playerState.heading,
-              playerState.speedKnots,
-              dt,
-              { baseSpeed: playerSpec.baseSpeed, turnRate: playerSpec.turnRate, maxHealth: playerState.hullMax },
-              playerState.hull
-            );
-            if (Number.isFinite(rec.x) && Number.isFinite(rec.z)) {
-              playerState.pos.x = rec.x;
-              playerState.pos.z = rec.z;
-            }
-            if (Number.isFinite(rec.heading)) {
-              playerState.heading = rec.heading;
-            }
-            if (Number.isFinite(rec.speedKnots)) {
-              playerState.speedKnots = rec.speedKnots;
-            }
-            if (authState.serverTick > playerState.lastReconciledTick) {
-              playerState.lastReconciledTick = authState.serverTick;
-            }
+          if (authState && authState.serverTick > playerState.lastReconciledTick) {
+            playerState.lastReconciledTick = authState.serverTick;
+            movementController.reconcileAuthoritativeState(authState, windFromRad);
           }
         }
 
-        // Advance position with finite guards
-        const forwardX = Math.sin(playerState.heading);
-        const forwardZ = Math.cos(playerState.heading);
-        const moveDist = playerState.speedKnots * 1.8 * dt;
-        if (Number.isFinite(forwardX) && Number.isFinite(moveDist)) {
-          playerState.pos.x += forwardX * moveDist;
+        // 3. Fixed Simulation Tick, Prediction, Sub-tick Interpolation & Transform Presentation
+        const { renderState, outboundCommands } = movementController.update(
+          {
+            rudderTarget,
+            sailAdjustDelta,
+          },
+          dt,
+          windFromRad,
+          getWaveHeight,
+          globalTime,
+          playerMesh,
+          playerWake
+        );
+
+        // 4. Send movement commands to MMO server
+        if (networkClient && outboundCommands.length > 0) {
+          for (let c = 0; c < outboundCommands.length; c++) {
+            networkClient.sendMovementCommand(outboundCommands[c]);
+          }
         }
-        if (Number.isFinite(forwardZ) && Number.isFinite(moveDist)) {
-          playerState.pos.z += forwardZ * moveDist;
-        }
+
+        // 5. Sync playerState properties with canonical simulation & render state
+        playerState.pos.x = renderState.x;
+        playerState.pos.y = renderState.y;
+        playerState.pos.z = renderState.z;
+        playerState.heading = renderState.heading;
+        playerState.speedKnots = renderState.speedKnots;
+        playerState.rudder = renderState.rudder;
+        playerState.sailSetting = renderState.sailSetting;
+        playerState.pitchAngle = renderState.pitch;
+        playerState.rollAngle = renderState.roll;
 
         // --- PHYSICAL COLLISION RESOLUTION ---
         const playerRadius = (playerSpec.length || 45) * 0.40;
@@ -1146,6 +1148,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           globalTime
         );
         if (landCol.collided) {
+          movementController.applyCollisionImpulse(0.30, landCol.damage);
           playerState.speedKnots *= 0.30;
           if (landCol.damage > 0) {
             playerState.hull = Math.max(0, playerState.hull - landCol.damage);
@@ -1176,6 +1179,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
               globalTime
             );
             if (shipCol.collided) {
+              movementController.applyCollisionImpulse(0.60, shipCol.rammingDamageA);
               playerState.speedKnots *= 0.60;
               enemyShip.speed *= 0.60;
               if (shipCol.rammingDamageA > 0) {
@@ -1208,34 +1212,6 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         persistentPlayerHullRef.current = playerState.hull;
         persistentPlayerSailsRef.current = playerState.sails;
         persistentPlayerCrewRef.current = playerState.crew;
-
-        // Wave pitching and rolling
-        const waveY = getWaveHeight(playerState.pos.x, playerState.pos.z, globalTime);
-        const waveAheadY = getWaveHeight(playerState.pos.x + forwardX * 6, playerState.pos.z + forwardZ * 6, globalTime);
-        const waveSideY = getWaveHeight(playerState.pos.x + forwardZ * 4, playerState.pos.z - forwardX * 4, globalTime);
-
-        const safeWaveY = Number.isFinite(waveY) ? waveY : 0;
-        const safeAheadY = Number.isFinite(waveAheadY) ? waveAheadY : safeWaveY;
-        const safeSideY = Number.isFinite(waveSideY) ? waveSideY : safeWaveY;
-
-        playerState.pitchAngle = THREE.MathUtils.lerp(playerState.pitchAngle, (safeAheadY - safeWaveY) * 0.08, dt * 3.0);
-        playerState.rollAngle = THREE.MathUtils.lerp(
-          playerState.rollAngle,
-          (safeSideY - safeWaveY) * 0.12 - playerState.rudder * (playerState.speedKnots / playerSpec.baseSpeed) * 0.14,
-          dt * 3.0
-        );
-
-        // Update player mesh transform with finite protection
-        if (Number.isFinite(playerState.pos.x) && Number.isFinite(safeWaveY) && Number.isFinite(playerState.pos.z)) {
-          playerMesh.position.set(playerState.pos.x, safeWaveY, playerState.pos.z);
-        }
-        if (Number.isFinite(playerState.pitchAngle) && Number.isFinite(playerState.heading) && Number.isFinite(playerState.rollAngle)) {
-          playerMesh.rotation.set(playerState.pitchAngle, playerState.heading, playerState.rollAngle);
-        }
-
-        // Wake foam elongation
-        playerWake.scale.set(1.0, Math.max(0.1, playerState.speedKnots / 5.0), 1.0);
-        playerWake.visible = playerState.speedKnots > 0.5;
 
         // Reload recharge
         playerState.portReload = Math.min(1.0, playerState.portReload + dt * 0.25);

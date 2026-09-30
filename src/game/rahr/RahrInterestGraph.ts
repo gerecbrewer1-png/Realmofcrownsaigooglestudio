@@ -24,7 +24,8 @@ import {
   RahrCellRecord,
   RahrRegionRecord,
   RahrHysteresisThresholds,
-  DEFAULT_RAHR_THRESHOLDS
+  DEFAULT_RAHR_THRESHOLDS,
+  RahrSpatialBounds
 } from './RahrTypes';
 
 export class RahrInterestGraph {

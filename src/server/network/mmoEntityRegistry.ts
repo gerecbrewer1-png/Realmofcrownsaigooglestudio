@@ -11,6 +11,11 @@ import {
   MMOEntityTransformData,
   MMOShipVisualConfig,
 } from '../../shared/mmoProtocol';
+import {
+  simulateShip,
+  MovementInputCommand,
+  ShipSimulationState,
+} from '../../shared/movement/index';
 
 export interface ServerMMOEntity {
   id: string;
@@ -229,41 +234,55 @@ export class ServerEntityRegistry {
   }
 
   /**
-   * Phase 2.9: Server-Authoritative Player Ship Physics Tick
+   * Phase 18: Server-Authoritative Player Ship Physics Tick (using shared deterministic simulation)
    */
   public tickPlayers(dtSec: number): void {
     for (const entity of this.entities.values()) {
       if (entity.type !== 'player_ship' || !entity.inputs || !entity.physicsProfile) continue;
 
-      // 1. Process inputs
-      const { rudder, throttle } = entity.inputs;
-      const { baseSpeed, turnRate } = entity.physicsProfile;
+      const rudder = entity.inputs.rudder;
+      const throttle = entity.inputs.throttle;
 
-      // 2. Simple wind multiplier (assuming wind from North / 0 radians for now)
-      const windFromRad = 0;
-      const angleToWind = Math.abs((((entity.transform.heading - windFromRad + Math.PI) % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2) - Math.PI);
-      
-      let windMultiplier = 0.75 + Math.sin(angleToWind) * 0.25;
-      if (angleToWind < 0.4) windMultiplier = 0.5; // in irons
+      const inputCmd: MovementInputCommand = {
+        sequence: entity.lastProcessedInputSequence ?? 0,
+        clientTick: 0,
+        timestamp: Date.now(),
+        rudderTarget: rudder,
+        sailSettingTarget: throttle,
+        braking: false,
+        reverse: false,
+        rudder,
+        sailSetting: throttle,
+        dt: dtSec,
+      };
 
-      const sailHealthMult = Math.max(0.2, entity.health / entity.maxHealth);
-      const targetKnots = baseSpeed * throttle * windMultiplier * sailHealthMult;
+      const prevState: ShipSimulationState = {
+        tick: 0,
+        timestamp: Date.now(),
+        x: entity.transform.x,
+        y: entity.transform.y,
+        z: entity.transform.z,
+        heading: entity.transform.heading,
+        speedKnots: entity.transform.speedKnots,
+        rudder,
+        sailSetting: throttle,
+        angularVelocity: 0,
+        pitchAngle: 0,
+        rollAngle: 0,
+        hull: entity.health,
+        maxHull: entity.maxHealth,
+        sails: entity.maxHealth,
+        maxSails: entity.maxHealth,
+        baseSpeed: entity.physicsProfile.baseSpeed,
+        turnRate: entity.physicsProfile.turnRate,
+        lastAcknowledgedSequence: entity.lastProcessedInputSequence ?? -1,
+      };
 
-      // Lerp speed
-      entity.transform.speedKnots += (targetKnots - entity.transform.speedKnots) * Math.min(1, dtSec * 1.2);
-
-      // 3. Turn logic
-      const effectiveTurnRate = (turnRate * (Math.PI / 180) * (entity.transform.speedKnots / baseSpeed + 0.2)) * rudder;
-      entity.transform.heading += effectiveTurnRate * dtSec;
-      
-      // Normalize heading
-      if (entity.transform.heading > Math.PI * 2) entity.transform.heading -= Math.PI * 2;
-      if (entity.transform.heading < 0) entity.transform.heading += Math.PI * 2;
-
-      // 4. Position advancement
-      const moveDist = entity.transform.speedKnots * 1.8 * dtSec;
-      entity.transform.x += Math.sin(entity.transform.heading) * moveDist;
-      entity.transform.z += Math.cos(entity.transform.heading) * moveDist;
+      const next = simulateShip(prevState, inputCmd, dtSec, { windAngleRad: 0 });
+      entity.transform.x = next.x;
+      entity.transform.z = next.z;
+      entity.transform.heading = next.heading;
+      entity.transform.speedKnots = next.speedKnots;
     }
   }
 

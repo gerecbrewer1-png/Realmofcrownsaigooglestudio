@@ -33,6 +33,8 @@
     "dist",
     "_migration_source",
     "_development_artifacts",
-    "scratch"
+    "scratch",
+    "src/performance/InstancedEntityRenderer.tsx",
+    "src/performance/StressTestScene.tsx"
   ]
 }

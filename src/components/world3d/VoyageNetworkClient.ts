@@ -29,6 +29,7 @@ import {
 } from '../../shared/mmoProtocol';
 
 import { ClientEntityInterpolator } from './MMOWorldPartition';
+import { MovementInputCommand } from '../../shared/movement/index';
 
 export type NetworkConnectionState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING';
 
@@ -506,6 +507,24 @@ export class VoyageNetworkClient {
     if (this.pendingInputs.length > 120) {
       this.pendingInputs.shift();
     }
+  }
+
+  /**
+   * Phase 18: Transmits explicit MovementInputCommand from the PlayerMovementController.
+   */
+  public sendMovementCommand(cmd: MovementInputCommand): void {
+    if (this.state !== 'CONNECTED' || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const inputPkt: PlayerInputPacket = {
+      type: 'PLAYER_INPUT',
+      sequence: cmd.sequence,
+      clientTimestamp: Date.now(),
+      rudder: cmd.rudderTarget,
+      throttle: cmd.sailSettingTarget,
+    };
+    this.sendPacket(inputPkt);
   }
 
   public sendFireRequest(broadside: 'port' | 'starboard', targetId?: string): void {
