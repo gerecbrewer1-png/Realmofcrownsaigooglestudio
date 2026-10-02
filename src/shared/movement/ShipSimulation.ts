@@ -188,3 +188,14 @@ export function createDefaultShipSimulationState(
     ...overrides,
   };
 }
+
+/**
+ * Unified ShipSimulation object conforming to client/reconciliation deterministic interface.
+ */
+export const ShipSimulation = {
+  step: simulateShip,
+  createDefaultState: createDefaultShipSimulationState,
+  normalizeAngle,
+  angleDifference,
+  lerpAngle,
+};

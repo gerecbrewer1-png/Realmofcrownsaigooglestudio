@@ -264,6 +264,10 @@ export class FleetGPUInstancer {
     return this.activeCounts.small + this.activeCounts.medium + this.activeCounts.large;
   }
 
+  public getActiveInstanceCount(archetype: HullArchetype): number {
+    return this.activeCounts[archetype] || 0;
+  }
+
   public dispose(): void {
     for (const mesh of this.hullInstancedMeshes.values()) {
       mesh.geometry.dispose();

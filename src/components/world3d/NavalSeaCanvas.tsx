@@ -31,6 +31,7 @@ import { ISLAND_HAVENS, NATIONS, IslandHavenSpec } from '../../data/navalCatalog
 import { auth } from '../../firebase/client';
 import { FleetGPUInstancer } from './FleetGPUInstancer';
 import { DeterministicProjectileSystem } from './DeterministicProjectileSystem';
+import { SinglePassOceanMaterial } from './SinglePassOceanMaterial';
 
 export interface NavalCombatStatus {
   playerHull: number;
@@ -332,10 +333,11 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     sun.shadow.bias = -0.0005;
     scene.add(sun);
 
-    // 3. Dynamic Physical 3D Ocean Surface (THREE.Water)
+    // 3. Dynamic Physical 3D Ocean Surface (THREE.Water + SinglePassOceanMaterial fallback)
     const oceanSize = 8000;
     const waterGeo = new THREE.PlaneGeometry(oceanSize, oceanSize);
     const waterNormalMap = SailHeraldryService.generateWaterNormalMap();
+    const waterNormalMap2 = SailHeraldryService.generateWaterNormalMap();
 
     // Godot water shader color fidelity:
     // deep_color: vec3(0.008, 0.09, 0.16) -> 0x021729
@@ -343,6 +345,21 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     // foam_color: vec3(0.92, 0.96, 1.0) -> 0xebf5ff
     const waterSunColor = timeOfDay === 'night' ? 0x93c5fd : timeOfDay === 'sunset' ? 0xf97316 : 0xfffbeb;
     const waterDeepColor = timeOfDay === 'night' ? 0x010b14 : timeOfDay === 'sunset' ? 0x081f30 : 0x03273e;
+    const waterShallowColor = timeOfDay === 'night' ? 0x041c30 : timeOfDay === 'sunset' ? 0x143c52 : 0x0d526b;
+    const waterSkyColor = timeOfDay === 'night' ? 0x1e3a8a : timeOfDay === 'sunset' ? 0xf97316 : 0x38bdf8;
+
+    // Phase 3: Single-Pass Specular Water Material with dual counter-scrolling normal maps
+    const singlePassWaterMaterial = new SinglePassOceanMaterial({
+      normalMap1: waterNormalMap,
+      normalMap2: waterNormalMap2,
+      sunDirection: sun.position.clone().normalize(),
+      sunColor: waterSunColor,
+      deepColor: waterDeepColor,
+      shallowColor: waterShallowColor,
+      skyColor: waterSkyColor,
+    });
+
+    const useSinglePassWater = isMobileDevice || VoyageQualityManager.getTier() !== 'HIGH';
 
     const water = new Water(waterGeo, {
       textureWidth: 512,
@@ -356,10 +373,16 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     });
     water.rotation.x = -Math.PI * 0.5;
     water.position.y = 0;
+
+    if (useSinglePassWater) {
+      water.material = singlePassWaterMaterial;
+    }
     scene.add(water);
 
     // 3b. Initialize Phase 2 Ocean Reflection Optimization (throttled reflection pass & layer isolation)
-    VoyageReflectionManager.initialize(water, camera, VoyageQualityManager.getSettings().reflectionUpdateInterval);
+    if (!useSinglePassWater) {
+      VoyageReflectionManager.initialize(water, camera, VoyageQualityManager.getSettings().reflectionUpdateInterval);
+    }
 
     // Wave height sampling function (Direct port of Godot dir_wave multi-harmonic crossing swells)
     const dirWave = (x: number, z: number, dx: number, dz: number, freq: number, speed: number, t: number): number => {
@@ -1120,6 +1143,11 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     let lastAppliedTod: string | null = null;
     const CAVE_SANCTUARY_POS = new THREE.Vector3(-380, 0, 220);
 
+    // Phase 1: Throttled input tracking (strictly emit on state change or 5 Hz heartbeat)
+    let lastSentRudder = 0;
+    let lastSentSailDelta = 0;
+    let lastSentCommandTimestamp = 0;
+
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
@@ -1211,10 +1239,19 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           movementController.getPresentationOwner().applyRenderState(playerMesh, playerWake, renderState);
         }
 
-        // 4. Send movement commands to MMO server
+        // 4. Send movement commands to MMO server (Phase 1: Throttled to input state change or 5 Hz heartbeat)
         if (networkClient && outboundCommands.length > 0) {
-          for (let c = 0; c < outboundCommands.length; c++) {
-            networkClient.sendMovementCommand(outboundCommands[c]);
+          const inputChanged =
+            Math.abs(rudderTarget - lastSentRudder) > 0.01 ||
+            Math.abs(sailAdjustDelta - lastSentSailDelta) > 0.001;
+          const heartbeatDue = (now - lastSentCommandTimestamp) >= 200; // 5 Hz (every 200ms)
+
+          if (inputChanged || heartbeatDue) {
+            const latestCmd = outboundCommands[outboundCommands.length - 1];
+            networkClient.sendMovementCommand(latestCmd);
+            lastSentRudder = rudderTarget;
+            lastSentSailDelta = sailAdjustDelta;
+            lastSentCommandTimestamp = now;
           }
         }
 
@@ -1635,10 +1672,27 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         }
       });
 
-      fleetInstancer.endFrame();
-
+      // Phase 5: Batch Remote MMO ships into FleetGPUInstancer
       if (networkClient) {
         for (const remote of networkClient.getRemoteEntities().values()) {
+          const distToCam = camera.position.distanceTo(remote.group.position);
+          const useGpuInstancing = distToCam > 40 && distToCam <= 400;
+
+          if (useGpuInstancing) {
+            const spec = SHIP_CATALOG[remote.type] || SHIP_CATALOG.frigate;
+            const archetype = FleetGPUInstancer.getArchetype(spec);
+            fleetInstancer.addShipInstance(
+              archetype,
+              remote.group.position.x,
+              remote.group.position.y,
+              remote.group.position.z,
+              remote.group.rotation.y
+            );
+            remote.group.visible = false;
+          } else if (distToCam <= 40) {
+            remote.group.visible = true;
+          }
+
           const uiPos = VoyageObjectPool.scratchVec1.copy(remote.group.position);
           uiPos.y += 18.0;
           const isPirate = remote.faction === 'pirates';
@@ -1647,6 +1701,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           uiManager.addHealthBar(uiPos, Math.max(0, remote.health / remote.maxHealth), 4.0, 0.4);
         }
       }
+
+      // End frame for GPU instancing: flushes instance matrices once per frame
+      fleetInstancer.endFrame();
 
       // Add Player's own nameplate and health bar
       const playerUIPos = VoyageObjectPool.scratchVec1.copy(playerState.pos);
@@ -1751,6 +1808,11 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           scene.remove(loot.mesh);
           floatingLoot.splice(l, 1);
         }
+      }
+
+      // Phase 3: Animate counter-scrolling normal maps for SinglePassOceanMaterial
+      if (water.material === singlePassWaterMaterial) {
+        singlePassWaterMaterial.updateTime(globalTime);
       }
 
       // --- ISLAND PROXIMITY DETECTION ---
@@ -1866,17 +1928,6 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
       // Phase 2.8 Real-Time MMO Network Client & Remote Ship Interpolation
       networkClient?.update(dt);
-      if (!useIsolation) {
-        networkClient?.sendLocalTransform(
-          playerState.pos.x,
-          playerState.pos.y,
-          playerState.pos.z,
-          playerState.heading,
-          playerState.speedKnots,
-          playerState.rudder,
-          playerState.sailSetting
-        );
-      }
       const defaultMetrics = {
         state: 'DISCONNECTED' as const,
         pingMs: 0,

@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { Water } from 'three/examples/jsm/objects/Water.js';
+import { VoyageQualityManager } from './VoyageQualityManager';
 
 export const VOYAGE_LAYERS = {
   DEFAULT_AND_REFLECTION: 0, // Visible to both main camera and ocean reflection camera
@@ -49,7 +50,12 @@ export class VoyageReflectionManager {
       water.onBeforeRender = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => {
         // Reflection isolation test: allow DEV bypass toggle or disabled interval
         const isBypassed = typeof window !== 'undefined' && (window as any).__BYPASS_REFLECTION__ === true;
-        if (!this.enabled || this.updateInterval === 0 || isBypassed) {
+        const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const qualityTier = VoyageQualityManager.getTier();
+        const isLowTier = qualityTier !== 'HIGH';
+
+        // Phase 3: Bypass planar reflection on mobile or below HIGH quality tier to halve active draw calls
+        if (!this.enabled || this.updateInterval === 0 || isBypassed || isMobile || isLowTier) {
           return; // Skip reflection render completely
         }
 
@@ -92,6 +98,10 @@ export class VoyageReflectionManager {
   }
 
   public static getStatusString(): string {
+    const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const qualityTier = VoyageQualityManager.getTier();
+    if (isMobile) return 'OFF (Mobile Specular Mode)';
+    if (qualityTier !== 'HIGH') return `OFF (${qualityTier} Specular Mode)`;
     if (!this.enabled || this.updateInterval === 0) return 'OFF (Mobile Saver)';
     if (this.updateInterval === 1) return 'ON (Every Frame)';
     return `ON (1/${this.updateInterval} Frames)`;

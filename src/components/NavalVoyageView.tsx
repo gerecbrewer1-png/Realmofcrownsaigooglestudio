@@ -43,6 +43,12 @@ import {
   Crown,
 } from 'lucide-react';
 import { NavalSeaCanvas, NavalCombatStatus, CameraPreset, TimeOfDay } from './world3d/NavalSeaCanvas';
+import {
+  NavalStatusGauges,
+  NavalTargetEnemyWidget,
+  NavalCombatLogTicker,
+  NavalIslandAnchorPrompt,
+} from './NavalVoyageHUDComponents';
 import { PortHavenCanvas } from './world3d/PortHavenCanvas';
 import { SHIP_CATALOG, ShipSpec } from './world3d/shipVisualService';
 import {
@@ -846,116 +852,36 @@ export const NavalVoyageView: React.FC<NavalVoyageViewProps> = ({
             </div>
           </div>
 
-          {/* Vitals Gauges: Hull, Sails, Knots, Wind, Audio & Chart */}
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {/* Hull Gauge */}
-            <div className="bg-slate-900/80 border border-slate-700/60 rounded-lg px-3 py-1 backdrop-blur-md min-w-[130px]">
-              <div className="flex justify-between text-[10px] text-slate-400 font-bold">
-                <span>HULL</span>
-                <span className={hullPct < 30 ? 'text-red-400 animate-pulse' : 'text-emerald-400'}>
-                  {status.playerHull} / {status.playerHullMax}
-                </span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-300 ${
-                    hullPct > 60 ? 'bg-emerald-500' : hullPct > 30 ? 'bg-amber-500' : 'bg-red-500'
-                  }`}
-                  style={{ width: `${hullPct}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Sails Gauge */}
-            <div className="bg-slate-900/80 border border-slate-700/60 rounded-lg px-3 py-1 backdrop-blur-md min-w-[120px]">
-              <div className="flex justify-between text-[10px] text-slate-400 font-bold">
-                <span>SAILS</span>
-                <span className="text-cyan-400">
-                  {status.playerSails} / {status.playerSailsMax}
-                </span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
-                <div
-                  className="h-full bg-cyan-500 transition-all duration-300"
-                  style={{ width: `${sailsPct}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Speedometer */}
-            <div className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700/60 rounded-lg px-3 py-1.5 backdrop-blur-md">
-              <Navigation
-                className="w-4 h-4 text-amber-400 transition-transform duration-300"
-                style={{ transform: `rotate(${status.headingDeg}deg)` }}
-              />
-              <div className="text-right">
-                <div className="text-[9px] text-slate-400 leading-none">SPEED</div>
-                <div className="text-xs font-black text-amber-200">{status.speedKnots} kts</div>
-              </div>
-            </div>
-
-            {/* Wind Compass */}
-            <div className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700/60 rounded-lg px-3 py-1.5 backdrop-blur-md">
-              <Wind
-                className="w-4 h-4 text-sky-400 transition-transform duration-500"
-                style={{ transform: `rotate(${status.windFromDeg}deg)` }}
-              />
-              <div>
-                <div className="text-[9px] text-slate-400 leading-none">WIND</div>
-                <div className="text-xs font-bold text-sky-300">
-                  {status.windStrength} kts <span className="text-[10px] font-normal">{status.windFromDeg}°</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Audio Shanty Toggle */}
-            <button
-              onClick={() => {
-                if (isAudioMuted) {
-                  setIsAudioMuted(false);
-                  soundEngine.playNavalTrack('shanty');
-                } else {
-                  setIsAudioMuted(true);
-                  soundEngine.stopNavalTrack();
-                }
-              }}
-              title={isAudioMuted ? 'Unmute Sea Shanties' : 'Mute Sea Shanties'}
-              className="p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 text-amber-300 text-xs shadow-md transition cursor-pointer"
-            >
-              {isAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-amber-400 animate-pulse" />}
-            </button>
-
-            {/* Nautical Sea Chart Button */}
-            <button
-              id="naval-btn-sea-chart"
-              onClick={() => {
-                soundEngine.playClick();
-                setShowChartModal(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/60 text-indigo-200 text-xs font-bold shadow-lg shadow-indigo-950/40 backdrop-blur-md transition cursor-pointer"
-            >
-              <MapIcon className="w-4 h-4 text-indigo-400" />
-              <span>Sea Chart [M]</span>
-            </button>
-
-            {/* Optimization Diagnostics Toggle (Phase 1) */}
-            <button
-              id="naval-btn-dev-diagnostics"
-              onClick={() => {
-                soundEngine.playClick();
-                setShowDevStats((prev) => !prev);
-              }}
-              title="Toggle Renderer Diagnostics HUD"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold shadow-md transition cursor-pointer ${
-                showDevStats
-                  ? 'bg-emerald-950/90 border-emerald-500 text-emerald-300'
-                  : 'bg-slate-900/80 hover:bg-slate-800 border-slate-700/60 text-slate-400'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>FPS / LOD</span>
-            </button>
-          </div>
+          {/* Phase 2: Memoized Vitals Gauges to eliminate component re-render churn */}
+          <NavalStatusGauges
+            playerHull={status.playerHull}
+            playerHullMax={status.playerHullMax}
+            playerSails={status.playerSails}
+            playerSailsMax={status.playerSailsMax}
+            speedKnots={status.speedKnots}
+            headingDeg={status.headingDeg}
+            windStrength={status.windStrength}
+            windFromDeg={status.windFromDeg}
+            isAudioMuted={isAudioMuted}
+            onToggleAudio={() => {
+              if (isAudioMuted) {
+                setIsAudioMuted(false);
+                soundEngine.playNavalTrack('shanty');
+              } else {
+                setIsAudioMuted(true);
+                soundEngine.stopNavalTrack();
+              }
+            }}
+            onOpenSeaChart={() => {
+              soundEngine.playClick();
+              setShowChartModal(true);
+            }}
+            showDevStats={showDevStats}
+            onToggleDevStats={() => {
+              soundEngine.playClick();
+              setShowDevStats((prev) => !prev);
+            }}
+          />
         </div>
       </header>
       )}
@@ -1271,91 +1197,29 @@ export const NavalVoyageView: React.FC<NavalVoyageViewProps> = ({
             </div>
           )}
 
-          {/* Target Enemy HUD Widget (During naval engagements) */}
-          {status.targetEnemy && status.targetEnemy.distance < 160 && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-slate-950/95 border-2 border-red-500/70 rounded-xl px-5 py-3 backdrop-blur-md shadow-2xl flex items-center gap-5 text-slate-100 animate-in fade-in">
-          <Crosshair className="w-7 h-7 text-red-400 animate-pulse" />
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-black text-red-300 uppercase tracking-wide">
-                {status.targetEnemy.name}
-              </span>
-              <span className="text-[10px] bg-red-950 text-red-300 px-2 py-0.5 rounded border border-red-700/60 font-bold">
-                {status.targetEnemy.distance}m
-              </span>
-            </div>
-            <div className="w-52 bg-slate-800 rounded-full h-2.5 mt-1.5 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-red-600 to-amber-500 transition-all duration-200"
-                style={{
-                  width: `${Math.max(
-                    0,
-                    Math.min(100, Math.round((status.targetEnemy.hull / status.targetEnemy.hullMax) * 100))
-                  )}%`,
-                }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
-              <span>HULL: {status.targetEnemy.hull} HP</span>
-              <span>CREW: {status.targetEnemy.crew}</span>
+          {/* Phase 2: Memoized Target Enemy & Boarding HUD Widget */}
+          <NavalTargetEnemyWidget
+            targetEnemy={status.targetEnemy}
+            canBoard={status.canBoard}
+            onStartBoarding={(enemy) => startBoarding(enemy)}
+          />
+
+          {/* Phase 2: Memoized Island Anchor Prompt */}
+          <NavalIslandAnchorPrompt
+            nearIsland={status.nearIsland}
+            hasActiveHaven={Boolean(activeIslandHaven)}
+            onDockAtIsland={handleDockAtIsland}
+          />
+
+          {/* Camera & Seamanship Controls Badge */}
+          <div className="absolute top-20 right-4 z-20 pointer-events-none hidden md:block">
+            <div className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-400 backdrop-blur-md shadow-lg">
+              🖱️ <span className="text-amber-300 font-semibold">Drag</span> to orbit 360° • ⚙️ <span className="text-amber-300 font-semibold">Wheel</span> to zoom
             </div>
           </div>
 
-          {/* Boarding Action Button (Unlocked when within 48m) */}
-          {status.canBoard && (
-            <button
-              onClick={() => startBoarding(status.targetEnemy!)}
-              className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-red-900/60 animate-bounce cursor-pointer flex items-center gap-1.5"
-            >
-              <Swords className="w-4 h-4" />
-              <span>Board Ship [B]</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Island Anchor Prompt (Appears when near harbor) */}
-      {status.nearIsland && !activeIslandHaven && (
-        <div className="absolute top-36 left-1/2 -translate-x-1/2 z-20 bg-amber-950/95 border-2 border-amber-500/90 rounded-2xl px-6 py-3.5 backdrop-blur-md shadow-2xl flex items-center gap-4 animate-bounce">
-          <Anchor className="w-7 h-7 text-amber-400" />
-          <div>
-            <div className="text-[11px] font-bold text-amber-300 uppercase tracking-wide">Approaching Harbor</div>
-            <div className="text-base font-black text-amber-100">{status.nearIsland.name}</div>
-          </div>
-          <button
-            id="naval-btn-drop-anchor"
-            onClick={() => handleDockAtIsland(status.nearIsland!)}
-            className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-900/50 transition cursor-pointer"
-          >
-            Drop Anchor & Trade [Enter]
-          </button>
-        </div>
-      )}
-
-      {/* Camera & Seamanship Controls Badge */}
-      <div className="absolute top-20 right-4 z-20 pointer-events-none hidden md:block">
-        <div className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-400 backdrop-blur-md shadow-lg">
-          🖱️ <span className="text-amber-300 font-semibold">Drag</span> to orbit 360° • ⚙️ <span className="text-amber-300 font-semibold">Wheel</span> to zoom
-        </div>
-      </div>
-
-      {/* Real-time Combat & Voyage Log Ticker */}
-      <div className="absolute bottom-28 left-4 z-20 max-w-md pointer-events-none">
-        <div className="space-y-1">
-          {status.combatLog.slice(0, 3).map((log, idx) => (
-            <div
-              key={idx}
-              className={`text-xs px-3.5 py-1.5 rounded-lg backdrop-blur-md border shadow-md transition-opacity ${
-                idx === 0
-                  ? 'bg-slate-900/95 text-amber-200 border-amber-500/50 font-bold opacity-100'
-                  : 'bg-slate-950/75 text-slate-300 border-slate-800 font-normal opacity-70'
-              }`}
-            >
-              {log}
-            </div>
-          ))}
-        </div>
-      </div>
+          {/* Phase 2: Memoized Real-time Combat & Voyage Log Ticker */}
+          <NavalCombatLogTicker combatLog={status.combatLog} />
 
       {/* Tactical Broadside, Ammunition & Steering Controls Dock */}
       <footer className="absolute bottom-16 left-0 right-0 z-30 p-2 pointer-events-none">

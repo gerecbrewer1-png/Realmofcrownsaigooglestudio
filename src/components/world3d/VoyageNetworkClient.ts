@@ -29,7 +29,7 @@ import {
 } from '../../shared/mmoProtocol';
 
 import { ClientEntityInterpolator } from './MMOWorldPartition';
-import { MovementInputCommand } from '../../shared/movement/index';
+import { MovementInputCommand, ShipSimulation, createDefaultShipSimulationState } from '../../shared/movement/index';
 
 export type NetworkConnectionState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING';
 
@@ -617,31 +617,41 @@ export class VoyageNetworkClient {
     const safeMaxHealth = profile && Number.isFinite(profile.maxHealth) && profile.maxHealth > 0 ? profile.maxHealth : 500;
     const safeHealth = Number.isFinite(health) ? health : safeMaxHealth;
 
-    // 1. Replay unacknowledged pending inputs on top of authoritative snapshot
-    let simX = this.authoritativePlayerState.x;
-    let simZ = this.authoritativePlayerState.z;
-    let simHeading = this.authoritativePlayerState.heading;
-    let simSpeed = this.authoritativePlayerState.speedKnots;
+    // 1. Replay unacknowledged pending inputs on top of authoritative snapshot via deterministic ShipSimulation.step
+    let simState = createDefaultShipSimulationState({
+      x: this.authoritativePlayerState.x,
+      z: this.authoritativePlayerState.z,
+      heading: this.authoritativePlayerState.heading,
+      speedKnots: this.authoritativePlayerState.speedKnots,
+      baseSpeed: safeBaseSpeed,
+      turnRate: safeTurnRate,
+      maxHull: safeMaxHealth,
+      hull: safeHealth,
+      maxSails: safeMaxHealth > 0 ? safeMaxHealth * 0.2 : 100,
+      sails: safeHealth > 0 ? safeHealth * 0.2 : 100,
+    });
 
     for (const inp of this.pendingInputs) {
       if (!inp || !Number.isFinite(inp.throttle) || !Number.isFinite(inp.rudder) || !Number.isFinite(inp.dt)) continue;
-      const angleToWind = Math.abs((((simHeading + Math.PI) % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2) - Math.PI);
-      let windMultiplier = 0.75 + Math.sin(angleToWind) * 0.25;
-      if (angleToWind < 0.4) windMultiplier = 0.5;
-
-      const sailHealthMult = Math.max(0.2, safeHealth / safeMaxHealth);
-      const targetKnots = safeBaseSpeed * inp.throttle * windMultiplier * sailHealthMult;
-
-      simSpeed += (targetKnots - simSpeed) * Math.min(1, inp.dt * 1.2);
-      const effectiveTurnRate = (safeTurnRate * (Math.PI / 180) * (simSpeed / safeBaseSpeed + 0.2)) * inp.rudder;
-      simHeading += effectiveTurnRate * inp.dt;
-      if (simHeading > Math.PI * 2) simHeading -= Math.PI * 2;
-      if (simHeading < 0) simHeading += Math.PI * 2;
-
-      const moveDist = simSpeed * 1.8 * inp.dt;
-      simX += Math.sin(simHeading) * moveDist;
-      simZ += Math.cos(simHeading) * moveDist;
+      const cmd: MovementInputCommand = {
+        sequence: inp.sequence,
+        clientTick: inp.sequence,
+        timestamp: inp.timestamp,
+        dt: inp.dt,
+        rudderTarget: inp.rudder,
+        sailSettingTarget: inp.throttle,
+        braking: false,
+        reverse: false,
+        rudder: inp.rudder,
+        sailSetting: inp.throttle,
+      };
+      simState = ShipSimulation.step(simState, cmd, inp.dt);
     }
+
+    const simX = simState.x;
+    const simZ = simState.z;
+    const simHeading = simState.heading;
+    const simSpeed = simState.speedKnots;
 
     // Safety fallback if simulation produced non-finite values
     if (!Number.isFinite(simX) || !Number.isFinite(simZ) || !Number.isFinite(simHeading) || !Number.isFinite(simSpeed)) {
@@ -689,15 +699,16 @@ export class VoyageNetworkClient {
     let resSpeed = validCurrentSpeed;
 
     if (err < 0.05) {
-      // Tiny error: ignore
+      // Tiny error (< 0.05m): ignore to prevent transform oscillation
       tier = 'tiny';
     } else if (err < 0.50) {
-      // Small error: smooth correction
+      // Small error: smooth convergence into the < 0.05m deadband
       tier = 'small';
-      resX = THREE.MathUtils.lerp(validCurrentX, simX, validDt * 3.0);
-      resZ = THREE.MathUtils.lerp(validCurrentZ, simZ, validDt * 3.0);
-      resHeading = angleLerp(validCurrentHeading, simHeading, validDt * 4.0);
-      resSpeed = THREE.MathUtils.lerp(validCurrentSpeed, simSpeed, validDt * 3.0);
+      const blend = Math.min(1.0, validDt * 5.0);
+      resX = THREE.MathUtils.lerp(validCurrentX, simX, blend);
+      resZ = THREE.MathUtils.lerp(validCurrentZ, simZ, blend);
+      resHeading = angleLerp(validCurrentHeading, simHeading, blend);
+      resSpeed = THREE.MathUtils.lerp(validCurrentSpeed, simSpeed, blend);
       this.recentSmoothCount++;
     } else if (err < 3.0) {
       // Moderate error: faster correction
