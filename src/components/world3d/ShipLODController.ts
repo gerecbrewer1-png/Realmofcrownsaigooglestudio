@@ -79,24 +79,34 @@ export class ShipLODController {
 
     // Scale thresholds based on mobile quality tier
     const mult = VoyageQualityManager.getSettings().lodDistanceMultiplier;
-    // Generous thresholds: Combat range (< 140m) is ALWAYS full Hero LOD0
-    const t0to1 = 140 * mult;
-    const t1to0 = 120 * mult;
-    const t1to2 = 320 * mult;
-    const t2to1 = 280 * mult;
-    const t2to3 = 650 * mult;
-    const t3to2 = 580 * mult;
+    // Fleet & Mobile Optimization (Wall 2):
+    // Combat (< 40m): Hero / Full LOD0
+    // Mid fleet (40m - 75m): LOD1
+    // Outer fleet (75m - 100m): LOD2
+    // Distant (> 100m): Swaps directly to low-poly billboard / impostor LOD3
+    const t0to1 = 40 * mult;
+    const t1to0 = 35 * mult;
+    const t1to2 = 75 * mult;
+    const t2to1 = 65 * mult;
+    const t2to3 = 100 * mult;
+    const t3to2 = 90 * mult;
 
     if (currentLOD === 0) {
-      if (effectiveDist > t0to1) targetLOD = 1;
+      if (effectiveDist > t2to3) targetLOD = 3;
+      else if (effectiveDist > t1to2) targetLOD = 2;
+      else if (effectiveDist > t0to1) targetLOD = 1;
     } else if (currentLOD === 1) {
       if (effectiveDist < t1to0) targetLOD = 0;
+      else if (effectiveDist > t2to3) targetLOD = 3;
       else if (effectiveDist > t1to2) targetLOD = 2;
     } else if (currentLOD === 2) {
-      if (effectiveDist < t2to1) targetLOD = 1;
+      if (effectiveDist < t1to0) targetLOD = 0;
+      else if (effectiveDist < t2to1) targetLOD = 1;
       else if (effectiveDist > t2to3) targetLOD = 3;
     } else if (currentLOD === 3) {
-      if (effectiveDist < t3to2) targetLOD = 2;
+      if (effectiveDist < t1to0) targetLOD = 0;
+      else if (effectiveDist < t2to1) targetLOD = 1;
+      else if (effectiveDist < t3to2) targetLOD = 2;
     }
 
     if (targetLOD !== currentLOD) {

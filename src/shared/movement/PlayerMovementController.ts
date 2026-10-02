@@ -262,6 +262,15 @@ export class PlayerMovementController {
     } else {
       // Discard acknowledged frames cleanly without rollback
       this.predictionBuffer.acknowledge(ackSeq);
+
+      // Smooth error blending for sub-threshold divergence to eliminate micro-rubberbanding
+      if (err > 0.01) {
+        const blendFactor = 0.15;
+        this.currentState.x += (auth.x - this.currentState.x) * blendFactor;
+        this.currentState.z += (auth.z - this.currentState.z) * blendFactor;
+        this.currentState.heading = lerpAngle(this.currentState.heading, auth.heading, blendFactor);
+        this.currentState.speedKnots += (auth.speedKnots - this.currentState.speedKnots) * blendFactor;
+      }
     }
   }
 
@@ -291,6 +300,10 @@ export class PlayerMovementController {
 
   public getPresentationOwner(): ShipPresentationOwner {
     return this.presentationOwner;
+  }
+
+  public getRollbackCount(): number {
+    return this.rollbackCount;
   }
 
   public getMetrics() {

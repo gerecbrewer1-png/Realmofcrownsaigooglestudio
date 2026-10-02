@@ -29,6 +29,8 @@ import { InstancedUIManager } from '../../rendering/InstancedUIManager';
 import { soundEngine } from '../../audio/soundEngine';
 import { ISLAND_HAVENS, NATIONS, IslandHavenSpec } from '../../data/navalCatalog';
 import { auth } from '../../firebase/client';
+import { FleetGPUInstancer } from './FleetGPUInstancer';
+import { DeterministicProjectileSystem } from './DeterministicProjectileSystem';
 
 export interface NavalCombatStatus {
   playerHull: number;
@@ -587,7 +589,19 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     const uiManager = new InstancedUIManager();
     scene.add(uiManager.group);
 
+    // Wall 2: Fleet GPU Instancer for batched ship rendering (3 to 6 draw calls for 150 ships)
+    const fleetInstancer = new FleetGPUInstancer();
+    scene.add(fleetInstancer.group);
+
+    // Wall 3: Deterministic Analytical Projectile System (1 draw call, zero in-flight raycasts)
+    const deterministicProjectiles = new DeterministicProjectileSystem();
+    scene.add(deterministicProjectiles.instancedMesh);
+
     const enemySpecs: EnemyShip[] = [];
+    const enemyById = new Map<string, EnemyShip>();
+    const islandById = new Map<string, (typeof ISLAND_HAVENS)[number]>();
+    ISLAND_HAVENS.forEach((h) => islandById.set(h.id, h));
+
     const fleetTemplates: Array<{ id: string; name: string; type: string; faction: FactionId; x: number; z: number; heading: number }> = [
       { id: 'p1', name: 'Black Skull Corsair', type: 'pirate_corsair', faction: 'pirates', x: 0, z: 95, heading: Math.PI },
       { id: 'p2', name: 'Crimson Raider Brig', type: 'brig', faction: 'pirates', x: -75, z: 135, heading: Math.PI * 0.8 },
@@ -632,6 +646,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       };
 
       enemySpecs.push(enemyObj);
+      enemyById.set(enemyObj.id, enemyObj);
 
       fleetManager.registerEntity({
         id: pt.id,
@@ -763,7 +778,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
             });
 
             if (mesh) {
-              enemySpecs.push({
+              const enemyObj: EnemyShip = {
                 id: procEntity.id,
                 name: procEntity.name,
                 spec,
@@ -781,7 +796,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
                 isSinking: false,
                 sinkTimer: 0,
                 wake: wake!,
-              });
+              };
+              enemySpecs.push(enemyObj);
+              enemyById.set(enemyObj.id, enemyObj);
             }
           }
         }
@@ -967,31 +984,30 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         const spreadX = (Math.random() - 0.5) * 0.08;
         const spreadZ = (Math.random() - 0.5) * 0.08;
         const ballDir = dir.clone().add(new THREE.Vector3(spreadX, 0.12, spreadZ)).normalize();
+        const ballVel = ballDir.multiplyScalar(ammoSpeed + Math.random() * 6.0);
 
-        const ball = VoyageObjectPool.acquireCannonball(
-          spawnPos,
-          ballDir.multiplyScalar(ammoSpeed + Math.random() * 6.0),
-          false, // Phase 2.9: Visual only, Server resolves hits!
-          Math.round(baseDmg + Math.random() * 20),
-          activeAmmo,
-          2.8
-        );
-        if (ball) {
-          if (activeAmmo === 'bombs') {
-            ball.mesh.scale.set(1.3, 1.3, 1.3);
+        // Wall 3: Fire into deterministic analytical projectile system
+        deterministicProjectiles.fire({
+          origin: spawnPos,
+          velocity: ballVel,
+          fireTimestampSec: globalTime,
+          damage: Math.round(baseDmg + Math.random() * 20),
+          fromPlayer: true,
+          targetEntityId: lastNearestEnemy?.id,
+          targetPos: lastNearestEnemy ? lastNearestEnemy.pos : undefined,
+        });
+
+        // Wall 2: Muzzle smoke particle from pool only if close to camera (<= 40m)
+        if (camera.position.distanceTo(spawnPos) <= 40) {
+          const smoke = VoyageObjectPool.acquireParticle(
+            spawnPos,
+            dir.clone().multiplyScalar(4.0).add(new THREE.Vector3(0, 1.5, 0)),
+            1.2,
+            2.5
+          );
+          if (smoke) {
+            particles.push(smoke as unknown as Particle);
           }
-          cannonballs.push(ball as unknown as Cannonball);
-        }
-
-        // Muzzle smoke particle from pool
-        const smoke = VoyageObjectPool.acquireParticle(
-          spawnPos,
-          dir.clone().multiplyScalar(4.0).add(new THREE.Vector3(0, 1.5, 0)),
-          1.2,
-          2.5
-        );
-        if (smoke) {
-          particles.push(smoke as unknown as Particle);
         }
       }
 
@@ -1115,6 +1131,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
       // Wind dynamics (Wind blows from windAngle)
       const windFromRad = (statusRef.current.windFromDeg * Math.PI) / 180;
+      const debugSwitches = VoyageDebugManager.getSwitches();
+      const useIsolation = debugSwitches.movementIsolationEnabled !== false;
 
       // --- PLAYER SHIP CONTROLS & PRODUCTION MOVEMENT CORE (Phase 18) ---
       if (playerState.hull > 0) {
@@ -1126,9 +1144,6 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         let sailAdjustDelta = 0;
         if (keysDown.has('KeyW') || keysDown.has('ArrowUp')) sailAdjustDelta += dt * 0.5;
         if (keysDown.has('KeyS') || keysDown.has('ArrowDown')) sailAdjustDelta -= dt * 0.5;
-
-        const debugSwitches = VoyageDebugManager.getSwitches();
-        const useIsolation = debugSwitches.movementIsolationEnabled !== false;
 
         let renderState: ShipRenderState;
         let outboundCommands: any[] = [];
@@ -1244,8 +1259,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         );
         for (let sIdx = 0; sIdx < nearbyTargets.length; sIdx++) {
           const targetId = nearbyTargets[sIdx].id;
-          const enemyShip = enemySpecs.find((e) => e.id === targetId && !e.isSinking);
-          if (enemyShip) {
+          const enemyShip = enemyById.get(targetId);
+          if (enemyShip && !enemyShip.isSinking) {
             const enemyRadius = (enemyShip.spec.length || 32) * 0.40;
             const shipCol = VoyageCollisionSystem.resolveShipToShipCollision(
               playerState.pos,
@@ -1507,7 +1522,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         CAVE_SANCTUARY_POS,
         getWaveHeight,
         (enemyFleetEntity) => {
-          // Pirate firing broadside at player via zero-allocation VoyageObjectPool
+          // Wall 3: Pirate firing broadside at player via DeterministicProjectileSystem
           soundEngine.playCannonFire();
           for (let b = 0; b < 3; b++) {
             _aimVec.copy(playerState.pos).sub(enemyFleetEntity.pos).normalize();
@@ -1518,24 +1533,25 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
             const spawnPos = VoyageObjectPool.scratchVec1.copy(enemyFleetEntity.pos);
             spawnPos.y += 2.5;
 
-            const ball = VoyageObjectPool.acquireCannonball(
-              spawnPos,
-              _aimVec.multiplyScalar(48.0),
-              false,
-              Math.round(40 + Math.random() * 20),
-              'balls',
-              2.8
-            );
-            if (ball) {
-              cannonballs.push(ball as unknown as Cannonball);
-            }
+            const ballVel = _aimVec.multiplyScalar(48.0);
+            deterministicProjectiles.fire({
+              origin: spawnPos,
+              velocity: ballVel,
+              fireTimestampSec: globalTime,
+              damage: Math.round(40 + Math.random() * 20),
+              fromPlayer: false,
+              sourceEntityId: enemyFleetEntity.id,
+              targetEntityId: 'player_flagship',
+              targetPos: playerState.pos,
+            });
           }
           statusRef.current.combatLog.unshift(`${enemyFleetEntity.name} fired a broadside at our ship!`);
         }
       );
 
-      // --- BATCHED UI UPDATES ---
+      // --- BATCHED UI UPDATES & FLEET GPU INSTANCING ---
       uiManager.beginUpdate();
+      fleetInstancer.beginFrame();
 
       // Animate visible ship secondary details & sinking ships
       enemySpecs.forEach((enemy) => {
@@ -1545,8 +1561,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           enemy.mesh.rotation.z += dt * 0.1;
           enemy.mesh.rotation.x -= dt * 0.08;
 
-          // Smoke from burning hull via object pool
-          if (Math.random() < 0.3) {
+          // Smoke from burning hull via object pool only if close
+          if (camera.position.distanceTo(enemy.pos) <= 40 && Math.random() < 0.3) {
             const smokePos = VoyageObjectPool.scratchVec1.copy(enemy.pos).add(
               VoyageObjectPool.scratchVec2.set((Math.random() - 0.5) * 4, 3, (Math.random() - 0.5) * 4)
             );
@@ -1561,6 +1577,36 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
             scene.remove(enemy.mesh);
           }
           return;
+        }
+
+        const distToCam = camera.position.distanceTo(enemy.pos);
+
+        // Wall 2: Disable wake trails on any ship further than 40 meters from camera
+        if (enemy.wake) {
+          enemy.wake.visible = distToCam <= 40;
+        }
+
+        // Wall 2: Planar reflection layer tagging
+        if (distToCam > 40) {
+          VoyageReflectionManager.tagMicroDetail(enemy.mesh);
+        } else {
+          VoyageReflectionManager.tagProminentReflective(enemy.mesh);
+        }
+
+        // Wall 2: Instanced mesh rendering for ships beyond 40m
+        const useGpuInstancing = distToCam > 40 && distToCam <= 350;
+        if (useGpuInstancing) {
+          const archetype = FleetGPUInstancer.getArchetype(enemy.spec);
+          fleetInstancer.addShipInstance(
+            archetype,
+            enemy.pos.x,
+            enemy.mesh.position.y,
+            enemy.pos.z,
+            enemy.heading
+          );
+          enemy.mesh.visible = false;
+        } else if (distToCam <= 40) {
+          enemy.mesh.visible = true;
         }
 
         // Animate enemy sweep oars if equipped and visible
@@ -1580,7 +1626,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           enemy.mesh.userData.pennantNode.rotation.y = Math.PI * 0.5 + Math.sin(globalTime * 4.6 + enemy.pos.x) * 0.26;
         }
 
-        if (enemy.mesh.visible) {
+        if (enemy.mesh.visible || useGpuInstancing) {
           const uiPos = VoyageObjectPool.scratchVec1.copy(enemy.pos);
           uiPos.y += 18.0;
           uiManager.addNameplate(uiPos, enemy.name, enemy.faction === 'pirates', 3.0);
@@ -1588,6 +1634,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           uiManager.addHealthBar(uiPos, Math.max(0, enemy.hull / enemy.hullMax), 4.0, 0.4);
         }
       });
+
+      fleetInstancer.endFrame();
 
       if (networkClient) {
         for (const remote of networkClient.getRemoteEntities().values()) {
@@ -1621,144 +1669,58 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       );
       if (nearestSpatial) {
         minDistance = nearestSpatial.distance;
-        nearestEnemy = enemySpecs.find((e) => e.id === nearestSpatial.entity.id) || null;
+        nearestEnemy = enemyById.get(nearestSpatial.entity.id) || null;
       }
 
-      // --- ZERO-ALLOCATION CANNONBALL BALLISTICS & SPATIAL IMPACTS ---
-      for (let i = cannonballs.length - 1; i >= 0; i--) {
-        const ball = cannonballs[i];
-        ball.life += dt;
-        ball.velocity.y -= 9.8 * dt; // gravity arc
+      // --- DETERMINISTIC PROJECTILE SYSTEM & BALLISTIC IMPACTS (Wall 3) ---
+      deterministicProjectiles.update(globalTime, (impact) => {
+        const distToCam = camera.position.distanceTo(impact.impactPos);
 
-        VoyageObjectPool.scratchVec1.copy(ball.velocity).multiplyScalar(dt);
-        ball.mesh.position.add(VoyageObjectPool.scratchVec1);
-
-        const waterHeight = getWaveHeight(ball.mesh.position.x, ball.mesh.position.z, globalTime);
-
-        // Check water splash
-        if (ball.mesh.position.y <= waterHeight) {
-          soundEngine.playWaterSplash();
-
-          // Water splash particle from pool
-          const splashPos = VoyageObjectPool.scratchVec1.set(ball.mesh.position.x, waterHeight + 0.5, ball.mesh.position.z);
-          const splashVel = VoyageObjectPool.scratchVec2.set(0, 3.5, 0);
-          const splash = VoyageObjectPool.acquireParticle(splashPos, splashVel, 0.6, 1.5);
-          if (splash) {
-            particles.push(splash as unknown as Particle);
-          }
-
-          VoyageObjectPool.releaseCannonball(ball as any);
-          cannonballs.splice(i, 1);
-          continue;
-        }
-
-        // Check player hit by enemy cannonball
-        if (!ball.fromPlayer && ball.mesh.position.distanceTo(playerState.pos) < playerSpec.length * 0.45) {
-          playerState.hull = Math.max(0, playerState.hull - ball.damage);
+        if (impact.isHit && impact.targetEntityId) {
           soundEngine.playCannonHit();
 
-          // Splinters particle from pool
-          const hitVel = VoyageObjectPool.scratchVec2.set((Math.random() - 0.5) * 5, 4, (Math.random() - 0.5) * 5);
-          const hitP = VoyageObjectPool.acquireParticle(ball.mesh.position, hitVel, 0.5, 1.2);
-          if (hitP) {
-            particles.push(hitP as unknown as Particle);
+          // Wall 2: Spawn splinter particles only within 40m of camera
+          if (distToCam <= 40) {
+            const hitVel = VoyageObjectPool.scratchVec2.set((Math.random() - 0.5) * 5, 4, (Math.random() - 0.5) * 5);
+            const hitP = VoyageObjectPool.acquireParticle(impact.impactPos, hitVel, 0.5, 1.2);
+            if (hitP) particles.push(hitP as unknown as Particle);
           }
 
-          statusRef.current.combatLog.unshift(`Incoming cannonball hit our hull! -${ball.damage} HP`);
-          VoyageObjectPool.releaseCannonball(ball as any);
-          cannonballs.splice(i, 1);
+          if (impact.targetEntityId === 'player_flagship') {
+            playerState.hull = Math.max(0, playerState.hull - impact.damage);
+            statusRef.current.combatLog.unshift(`Incoming cannonball hit our hull! -${impact.damage} HP`);
+            if (playerState.hull <= 0 && onDefeatRef.current) {
+              onDefeatRef.current();
+            }
+          } else {
+            const enemy = enemyById.get(impact.targetEntityId);
+            if (enemy && !enemy.isSinking) {
+              enemy.hull = Math.max(0, enemy.hull - impact.damage);
+              statusRef.current.combatLog.unshift(`Direct hit on ${enemy.name}! -${impact.damage} HULL!`);
 
-          if (playerState.hull <= 0) {
-            statusRef.current.combatLog.unshift(`DISASTER! Our flagship has suffered catastrophic hull failure!`);
-            if (onDefeatRef.current) onDefeatRef.current();
-          }
-          continue;
-        }
-
-        // Check enemy hit by player cannonball using 2D Spatial Grid (O(1) cell query)
-        if (ball.fromPlayer) {
-          let hitEnemy = false;
-          const nearbyTargets = fleetManager.getSpatialGrid().queryRadius(ball.mesh.position.x, ball.mesh.position.z, 40);
-
-          for (let t = 0; t < nearbyTargets.length; t++) {
-            const targetEntry = nearbyTargets[t];
-            const enemy = enemySpecs.find((e) => e.id === targetEntry.id);
-            if (!enemy || enemy.isSinking) continue;
-
-            const shipRadius = (enemy.spec.length || 30) * 0.45;
-            if (ball.mesh.position.distanceTo(enemy.pos) < shipRadius) {
-              let hullDmg = ball.damage;
-              let sailDmg = Math.round(ball.damage * 0.25);
-              let logText = `Direct hit on ${enemy.name}! -${ball.damage} HULL!`;
-
-              if (ball.ammoType === 'knippels') {
-                hullDmg = Math.round(ball.damage * 0.2);
-                sailDmg = Math.round(ball.damage * 2.8);
-                enemy.sails = Math.max(0, enemy.sails - sailDmg);
-                enemy.speed = Math.max(1.2, enemy.speed * 0.82);
-                logText = `Chain shot sheared rigging of ${enemy.name}! -${sailDmg} SAILS!`;
-              } else if (ball.ammoType === 'grapeshot') {
-                hullDmg = Math.round(ball.damage * 0.15);
-                logText = `Canister grape swept decks of ${enemy.name}! Crew shattered!`;
-              } else if (ball.ammoType === 'bombs') {
-                hullDmg = Math.round(ball.damage * 1.75);
-                sailDmg = Math.round(ball.damage * 0.5);
-                logText = `Explosive bomb detonated on ${enemy.name}! -${hullDmg} FIRE DAMAGE!`;
-              }
-
-              enemy.hull = Math.max(0, enemy.hull - hullDmg);
-              soundEngine.playCannonHit();
-              hitEnemy = true;
-              statusRef.current.combatLog.unshift(logText);
-
-              // Wood splinter explosion from pool
-              for (let sp = 0; sp < 3; sp++) {
-                const spVel = VoyageObjectPool.scratchVec2.set(
-                  (Math.random() - 0.5) * 8,
-                  4 + Math.random() * 3,
-                  (Math.random() - 0.5) * 8
-                );
-                const splinter = VoyageObjectPool.acquireParticle(ball.mesh.position, spVel, 0.7, 1.2);
-                if (splinter) {
-                  particles.push(splinter as unknown as Particle);
-                }
-              }
-
-              // Check if enemy sunk
               if (enemy.hull <= 0) {
                 enemy.isSinking = true;
                 const fleetEnt = fleetManager.getEntityById(enemy.id);
                 if (fleetEnt) fleetEnt.isSinking = true;
-
                 soundEngine.playBattleVictory();
                 statusRef.current.combatLog.unshift(`VICTORY! ${enemy.name} has been sent to Davy Jones' Locker!`);
-
-                // Spawn floating booty
                 spawnSalvage(enemy.pos.clone(), 'gold', 500);
                 spawnSalvage(enemy.pos.clone().add(new THREE.Vector3(12, 0, 8)), 'gems', 50);
                 spawnSalvage(enemy.pos.clone().add(new THREE.Vector3(-10, 0, 10)), 'relics', 1);
-
-                if (onVictoryRef.current) {
-                  onVictoryRef.current({ gold: 500, gems: 50, wood: 200, relics: 1 });
-                }
+                if (onVictoryRef.current) onVictoryRef.current({ gold: 500, gems: 50, wood: 200, relics: 1 });
               }
-              break;
             }
           }
-
-          if (hitEnemy) {
-            VoyageObjectPool.releaseCannonball(ball as any);
-            cannonballs.splice(i, 1);
-            continue;
+        } else {
+          // Water splash
+          soundEngine.playWaterSplash();
+          if (distToCam <= 40) {
+            const splashVel = VoyageObjectPool.scratchVec2.set(0, 3.5, 0);
+            const splash = VoyageObjectPool.acquireParticle(impact.impactPos, splashVel, 0.6, 1.5);
+            if (splash) particles.push(splash as unknown as Particle);
           }
         }
-
-        // Expire and recycle back to pool
-        if (ball.life > ball.maxLife) {
-          VoyageObjectPool.releaseCannonball(ball as any);
-          cannonballs.splice(i, 1);
-        }
-      }
+      });
 
       // --- ZERO-ALLOCATION PARTICLES UPDATE ---
       for (let p = particles.length - 1; p >= 0; p--) {
@@ -1811,7 +1773,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         if (hasTolledBellForIsland !== closestIsland.id) {
           hasTolledBellForIsland = closestIsland.id;
           soundEngine.playShipBell();
-          const islSpec = ISLAND_HAVENS.find((h) => h.id === closestIsland?.id);
+          const islSpec = closestIsland ? islandById.get(closestIsland.id) : undefined;
           if (islSpec) {
             if (islSpec.nation === 'england') soundEngine.playNavalTrack('town_england');
             else if (islSpec.nation === 'france') soundEngine.playNavalTrack('town_france');
@@ -1829,9 +1791,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         }
       }
 
-      // Status emission to React parent (throttled to 10 FPS)
+      // Status emission to React parent (throttled to 2 Hz / 500ms)
       logUpdateTimer += dt;
-      if (logUpdateTimer >= 0.1) {
+      if (logUpdateTimer >= 0.5) {
         logUpdateTimer = 0;
         statusRef.current = {
           ...statusRef.current,
@@ -1904,15 +1866,17 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
       // Phase 2.8 Real-Time MMO Network Client & Remote Ship Interpolation
       networkClient?.update(dt);
-      networkClient?.sendLocalTransform(
-        playerState.pos.x,
-        playerState.pos.y,
-        playerState.pos.z,
-        playerState.heading,
-        playerState.speedKnots,
-        playerState.rudder,
-        playerState.sailSetting
-      );
+      if (!useIsolation) {
+        networkClient?.sendLocalTransform(
+          playerState.pos.x,
+          playerState.pos.y,
+          playerState.pos.z,
+          playerState.heading,
+          playerState.speedKnots,
+          playerState.rudder,
+          playerState.sailSetting
+        );
+      }
       const defaultMetrics = {
         state: 'DISCONNECTED' as const,
         pingMs: 0,
@@ -2008,6 +1972,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       VoyageReflectionManager.dispose();
       VoyageObjectPool.dispose();
       uiManager.dispose();
+      fleetInstancer.dispose();
+      deterministicProjectiles.dispose();
       networkClient?.destroy();
       soundEngine.stopNavalTrack();
       if (renderer.domElement.parentNode) {

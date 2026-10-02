@@ -254,7 +254,8 @@ export class VoyageFleetManager {
             e.mesh.visible = true;
             e.renderVisible = true;
             const distToCam = e.pos.distanceTo(cameraPos);
-            if (e.wake) e.wake.visible = distToCam < 350;
+            // Wall 2: Disable wake trails on any ship further than 40 meters from camera
+            if (e.wake) e.wake.visible = distToCam <= 40;
 
             // Apply visual LOD
             e.lodTier = ShipLODController.updateShipLOD(
