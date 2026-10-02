@@ -10,3 +10,4 @@ coverage/
 .system_generated/
 .tempmediaStorage/
 .vite/
+*.png

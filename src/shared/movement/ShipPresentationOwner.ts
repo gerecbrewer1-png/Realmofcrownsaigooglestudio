@@ -43,14 +43,24 @@ export class ShipPresentationOwner {
     shipMesh.position.set(safeX, safeY, safeZ);
     shipMesh.rotation.set(safePitch, safeHeading, safeRoll);
 
-    // 3. Update wake visuals
+    // 3. Guarantee that the ship visual mesh and active LOD hierarchy are visible
+    shipMesh.visible = true;
+    const ud = (shipMesh as any).userData;
+    if (ud && Array.isArray(ud.lodLevels) && ud.lodLevels.length > 0) {
+      const activeTier = typeof ud.currentLOD === 'number' ? ud.currentLOD : 0;
+      if (ud.lodLevels[activeTier]) {
+        ud.lodLevels[activeTier].visible = true;
+      }
+    }
+
+    // 4. Update wake visuals
     if (wakeMesh) {
       const safeWakeScale = Number.isFinite(state.wakeScale) ? state.wakeScale : 1.0;
       wakeMesh.scale.set(1.0, safeWakeScale, 1.0);
       wakeMesh.visible = Boolean(state.wakeVisible);
     }
 
-    // 4. Cache state for camera and external consumers
+    // 5. Cache state for camera and external consumers
     this.latestRenderState = { ...state, x: safeX, y: safeY, z: safeZ, pitch: safePitch, heading: safeHeading, roll: safeRoll };
   }
 

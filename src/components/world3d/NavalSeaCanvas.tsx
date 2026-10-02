@@ -24,7 +24,7 @@ import { VoyageAreaOfInterest } from './VoyageAreaOfInterest';
 import { MMOWorldPartitionManager, NetworkLOD, MMOAuthoritativeEntity } from './MMOWorldPartition';
 import { VoyageNetworkClient } from './VoyageNetworkClient';
 import { VoyageCollisionSystem } from './VoyageCollisionSystem';
-import { PlayerMovementController } from '../../shared/movement/index';
+import { PlayerMovementController, ShipRenderState } from '../../shared/movement/index';
 import { InstancedUIManager } from '../../rendering/InstancedUIManager';
 import { soundEngine } from '../../audio/soundEngine';
 import { ISLAND_HAVENS, NATIONS, IslandHavenSpec } from '../../data/navalCatalog';
@@ -484,10 +484,21 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     // 5. Player Ship Setup with Sovereign Royal Crest
     const playerSpec = SHIP_CATALOG[shipType] || SHIP_CATALOG.galleon;
     const playerMesh = ShipVisualService.createShipMesh(playerSpec, false, 'sovereign');
+    playerMesh.visible = true;
     scene.add(playerMesh);
 
     const playerWake = ShipVisualService.createWakeMesh(playerSpec.length, playerSpec.beam);
     playerMesh.add(playerWake);
+
+    const safeHull = (persistentPlayerHullRef.current !== null && persistentPlayerHullRef.current > 0)
+      ? persistentPlayerHullRef.current
+      : playerSpec.hullMax;
+    const safeSails = (persistentPlayerSailsRef.current !== null && persistentPlayerSailsRef.current > 0)
+      ? persistentPlayerSailsRef.current
+      : playerSpec.sailsMax;
+    const safeCrew = (persistentPlayerCrewRef.current !== null && persistentPlayerCrewRef.current > 0)
+      ? persistentPlayerCrewRef.current
+      : playerSpec.crewMax;
 
     const movementController = new PlayerMovementController({
       x: persistentPlayerPosRef.current.x,
@@ -497,9 +508,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       speedKnots: persistentPlayerSpeedRef.current,
       rudder: 0,
       sailSetting: persistentPlayerSailSettingRef.current,
-      hull: persistentPlayerHullRef.current ?? playerSpec.hullMax,
+      hull: safeHull,
       maxHull: playerSpec.hullMax,
-      sails: persistentPlayerSailsRef.current ?? playerSpec.sailsMax,
+      sails: safeSails,
       maxSails: playerSpec.sailsMax,
       baseSpeed: playerSpec.baseSpeed,
       turnRate: playerSpec.turnRate,
@@ -514,11 +525,11 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       rudder: 0,
       speedKnots: persistentPlayerSpeedRef.current,
       sailSetting: persistentPlayerSailSettingRef.current, // 0 = furl, 0.5 = battle, 1.0 = full
-      hull: persistentPlayerHullRef.current ?? playerSpec.hullMax,
+      hull: safeHull,
       hullMax: playerSpec.hullMax,
-      sails: persistentPlayerSailsRef.current ?? playerSpec.sailsMax,
+      sails: safeSails,
       sailsMax: playerSpec.sailsMax,
-      crew: persistentPlayerCrewRef.current ?? playerSpec.crewMax,
+      crew: safeCrew,
       portReload: 1.0,
       starboardReload: 1.0,
       rollAngle: 0,
@@ -526,6 +537,27 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       lastReconciledTick: 0,
     };
     (window as any).__NAVAL_PLAYER_STATE__ = playerState;
+
+    // Apply immediate Frame 0 transform via the single presentation owner so playerMesh is positioned and visible before tick 0
+    movementController.getPresentationOwner().applyRenderState(
+      playerMesh,
+      playerWake,
+      {
+        x: playerState.pos.x,
+        y: playerState.pos.y,
+        z: playerState.pos.z,
+        pitch: playerState.pitchAngle,
+        heading: playerState.heading,
+        roll: playerState.rollAngle,
+        speedKnots: playerState.speedKnots,
+        rudder: playerState.rudder,
+        sailSetting: playerState.sailSetting,
+        wakeScale: 0.1,
+        wakeVisible: false,
+        presentationTimestamp: performance.now(),
+      }
+    );
+    ShipLODController.updateShipLOD(playerMesh, 0, true);
 
     // 6. Hostile Pirate, Asian War Junk & Large-Fleet Setup (Phase 2.6)
     VoyageObjectPool.initialize(scene, 45, 90);
@@ -1095,28 +1127,74 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         if (keysDown.has('KeyW') || keysDown.has('ArrowUp')) sailAdjustDelta += dt * 0.5;
         if (keysDown.has('KeyS') || keysDown.has('ArrowDown')) sailAdjustDelta -= dt * 0.5;
 
-        // 2. Reconcile with server authoritative state (if connected)
-        if (networkClient) {
-          const authState = networkClient.getAuthoritativePlayerState();
-          if (authState && authState.serverTick > playerState.lastReconciledTick) {
-            playerState.lastReconciledTick = authState.serverTick;
-            movementController.reconcileAuthoritativeState(authState, windFromRad);
-          }
-        }
+        const debugSwitches = VoyageDebugManager.getSwitches();
+        const useIsolation = debugSwitches.movementIsolationEnabled !== false;
 
-        // 3. Fixed Simulation Tick, Prediction, Sub-tick Interpolation & Transform Presentation
-        const { renderState, outboundCommands } = movementController.update(
-          {
-            rudderTarget,
-            sailAdjustDelta,
-          },
-          dt,
-          windFromRad,
-          getWaveHeight,
-          globalTime,
-          playerMesh,
-          playerWake
-        );
+        let renderState: ShipRenderState;
+        let outboundCommands: any[] = [];
+
+        if (useIsolation) {
+          // 2. Reconcile with server authoritative state (if connected)
+          if (networkClient) {
+            const authState = networkClient.getAuthoritativePlayerState();
+            if (authState && authState.serverTick > playerState.lastReconciledTick) {
+              playerState.lastReconciledTick = authState.serverTick;
+              movementController.reconcileAuthoritativeState(authState, windFromRad);
+            }
+          }
+
+          // 3. Fixed Simulation Tick, Prediction, Sub-tick Interpolation & Transform Presentation
+          const updateResult = movementController.update(
+            {
+              rudderTarget,
+              sailAdjustDelta,
+            },
+            dt,
+            windFromRad,
+            getWaveHeight,
+            globalTime,
+            playerMesh,
+            playerWake
+          );
+          renderState = updateResult.renderState;
+          outboundCommands = updateResult.outboundCommands;
+        } else {
+          // Fallback path when experiment toggle is OFF:
+          // Keep ShipPresentationOwner as the single writer so player ship is guaranteed visible & rendered
+          if (rudderTarget !== 0) {
+            playerState.rudder = THREE.MathUtils.clamp(playerState.rudder + rudderTarget * dt * 2.0, -1, 1);
+          } else {
+            playerState.rudder = THREE.MathUtils.damp(playerState.rudder, 0, 4.0, dt);
+          }
+          if (sailAdjustDelta !== 0) {
+            playerState.sailSetting = THREE.MathUtils.clamp(playerState.sailSetting + sailAdjustDelta, 0, 1);
+          }
+          const turnSpeed = (playerSpec.turnRate || 20) * (Math.PI / 180) * 0.15;
+          playerState.heading += playerState.rudder * turnSpeed * dt * (playerState.speedKnots / Math.max(1, playerSpec.baseSpeed));
+          const targetKnots = playerSpec.baseSpeed * playerState.sailSetting;
+          playerState.speedKnots = THREE.MathUtils.damp(playerState.speedKnots, targetKnots, 1.5, dt);
+          
+          const vel = (playerState.speedKnots * 0.514444) * dt;
+          playerState.pos.x += Math.sin(playerState.heading) * vel;
+          playerState.pos.z += Math.cos(playerState.heading) * vel;
+          playerState.pos.y = getWaveHeight(playerState.pos.x, playerState.pos.z, globalTime);
+
+          renderState = {
+            x: playerState.pos.x,
+            y: playerState.pos.y,
+            z: playerState.pos.z,
+            pitch: 0,
+            heading: playerState.heading,
+            roll: -playerState.rudder * 0.1,
+            speedKnots: playerState.speedKnots,
+            rudder: playerState.rudder,
+            sailSetting: playerState.sailSetting,
+            wakeScale: Math.max(0.1, playerState.speedKnots / 5.0),
+            wakeVisible: playerState.speedKnots > 0.5,
+            presentationTimestamp: performance.now(),
+          };
+          movementController.getPresentationOwner().applyRenderState(playerMesh, playerWake, renderState);
+        }
 
         // 4. Send movement commands to MMO server
         if (networkClient && outboundCommands.length > 0) {
@@ -1216,6 +1294,11 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         // Reload recharge
         playerState.portReload = Math.min(1.0, playerState.portReload + dt * 0.25);
         playerState.starboardReload = Math.min(1.0, playerState.starboardReload + dt * 0.25);
+      } else {
+        // Player flagship hull defeated: smooth sinking presentation
+        playerMesh.position.y -= dt * 1.2;
+        playerMesh.rotation.z += dt * 0.04;
+        playerMesh.rotation.x -= dt * 0.02;
       }
 
       // --- CINEMATIC CHASE & ORBIT CAMERA WITH PRESETS ---

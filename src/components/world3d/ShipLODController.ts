@@ -47,7 +47,8 @@ export class ShipLODController {
     // Check debug overrides
     const debugSwitches = VoyageDebugManager.getSwitches();
     if (!debugSwitches.shipLODEnabled || (debugSwitches.forceLOD0OnAllPirates && isPirate)) {
-      if (ud.currentLOD !== 0) {
+      const lod0 = ud.lodLevels ? ud.lodLevels[0] : null;
+      if (ud.currentLOD !== 0 || !shipGroup.visible || (lod0 && !lod0.visible)) {
         this.applyLOD(shipGroup, 0, isHeroPlayer);
       }
       return 0;
@@ -55,7 +56,8 @@ export class ShipLODController {
 
     // Hero player ship is ALWAYS locked to LOD0 (100% full visual fidelity)
     if (isHeroPlayer) {
-      if (ud.currentLOD !== 0) {
+      const lod0 = ud.lodLevels ? ud.lodLevels[0] : null;
+      if (ud.currentLOD !== 0 || !shipGroup.visible || (lod0 && !lod0.visible)) {
         this.applyLOD(shipGroup, 0, true);
       }
       return 0;

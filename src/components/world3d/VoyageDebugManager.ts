@@ -21,6 +21,7 @@ export interface VoyageDebugSwitches {
   gpuInstancingEnabled: boolean;
   adaptiveQualityEnabled: boolean;
   forceLOD0OnAllPirates: boolean;
+  movementIsolationEnabled: boolean;
 }
 
 export class VoyageDebugManager {
@@ -33,6 +34,7 @@ export class VoyageDebugManager {
     gpuInstancingEnabled: true,
     adaptiveQualityEnabled: false, // Default to stable quality (prevent unwanted downscaling to LOW)
     forceLOD0OnAllPirates: false,
+    movementIsolationEnabled: true,
   };
 
   private static listeners: Array<(switches: VoyageDebugSwitches) => void> = [];
@@ -60,7 +62,9 @@ export class VoyageDebugManager {
   }
 
   private static notify() {
-    (window as any).__VOYAGE_DEBUG_SWITCHES__ = { ...this.switches };
+    if (typeof window !== 'undefined') {
+      (window as any).__VOYAGE_DEBUG_SWITCHES__ = { ...this.switches };
+    }
     this.listeners.forEach(cb => cb(this.switches));
   }
 }
