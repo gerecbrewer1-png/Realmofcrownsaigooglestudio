@@ -89,11 +89,11 @@ export class SinglePassOceanMaterial extends THREE.ShaderMaterial {
 
           // Foam based on steep normal slopes
           float foamAmount = smoothstep(0.85, 1.0, 1.0 - normal.y);
-          vec3 foamColor = vec3(0.87, 0.95, 0.98); // #dff2fa
+          vec3 foamColor = vec3(0.85, 0.92, 0.95); // #dff2fa
 
           // Base colors: deep-sea navy and Caribbean turquoise crest
-          vec3 deepNavy = vec3(0.015, 0.07, 0.15);
-          vec3 crestTurquoise = vec3(0.06, 0.32, 0.40);
+          vec3 deepNavy = vec3(0.01, 0.08, 0.18);
+          vec3 crestTurquoise = vec3(0.04, 0.28, 0.36);
           vec3 baseWater = mix(deepNavy, crestTurquoise, clamp(fresnel * 0.4 + (1.0 - normal.y) * 0.6, 0.0, 1.0));
 
           // Blend water with sky Fresnel + direct sun specular + foam
