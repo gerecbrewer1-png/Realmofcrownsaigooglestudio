@@ -52,6 +52,7 @@ export class FleetGPUInstancer {
   constructor() {
     this.group = new THREE.Group();
     this.group.name = 'fleet-gpu-instancer';
+    this.group.visible = false; // Disabled to prevent duplicate untextured ghost boxes in the scene
     this.initGeometriesAndMaterials();
   }
 

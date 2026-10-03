@@ -31,6 +31,7 @@ import {
 import { SnapshotBuffer } from '../../shared/movement/SnapshotBuffer';
 import { MovementInputCommand, ShipSimulation, createDefaultShipSimulationState } from '../../shared/movement/index';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { ShipVisualService, SHIP_CATALOG } from './shipVisualService';
 
 export type NetworkConnectionState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING';
 
@@ -331,11 +332,17 @@ export class VoyageNetworkClient {
   }
 
   private handleEntitySpawn(pkt: EntitySpawnPacket): void {
-    // Avoid creating a duplicate visual mesh for our own ship
+    // Avoid creating a duplicate visual mesh for our own ship or local fleet
     if (pkt.entityId === this.controlledEntityId) return;
+    if ((pkt as any).playerId && (pkt as any).playerId === this.assignedPlayerId) return;
+    if (pkt.entityId.startsWith('player_')) return;
     
+    // Ignore local template ships to avoid ghost duplicates
+    if (pkt.entityId === 'p1' || pkt.entityId === 'p2' || pkt.entityId === 's1' || pkt.entityId === 'j1' || pkt.entityId === 'j2' || pkt.entityId === 'g1' || pkt.entityId === 'd1' || pkt.entityId === 'f1' || pkt.entityId === 'f2') {
+      return;
+    }
+
     // Phase 2.9: Projectiles are invisible server-side objects for collision
-    // The client uses FIRE_CONFIRMED to spawn client-side visual effects
     if (pkt.entityType === 'projectile') return;
 
     // Remove existing if already present
@@ -348,41 +355,21 @@ export class VoyageNetworkClient {
     group.position.set(pkt.transform.x, pkt.transform.y, pkt.transform.z);
     group.rotation.y = pkt.transform.heading;
 
-    // Procedural Hull
-    const isPirate = pkt.entityType === 'pirate_ship';
-    const hullMat = isPirate ? VoyageNetworkClient.pirateHullMat! : VoyageNetworkClient.playerHullMat!;
-    const hullMesh = new THREE.Mesh(VoyageNetworkClient.sharedHullGeometry!, hullMat);
-    hullMesh.position.y = 1.0;
-    hullMesh.castShadow = true;
-    hullMesh.receiveShadow = true;
-    group.add(hullMesh);
-
-    // Procedural Mast & Sails
-    const sailMat = isPirate ? VoyageNetworkClient.pirateSailMat! : VoyageNetworkClient.sailMat!;
-    const sailMeshes: THREE.Mesh[] = [];
-
-    // Main mast
-    const mastMesh = new THREE.Mesh(VoyageNetworkClient.sharedMastGeometry!, VoyageNetworkClient.mastMat!);
-    mastMesh.position.y = 7.0;
-    group.add(mastMesh);
-
-    // Main sail
-    const sailMesh = new THREE.Mesh(VoyageNetworkClient.sharedSailGeometry!, sailMat);
-    sailMesh.position.set(0, 8.5, 0.4);
-    group.add(sailMesh);
-    sailMeshes.push(sailMesh);
-
-    // Nameplates and Health bars will now be batched by InstancedUIManager
-    // inside NavalSeaCanvas.tsx to eliminate DOM / Sprite draw call overhead.
+    // Render using authentic GLTF ship models (NO procedural brown box / quad sail)
+    const isPirate = pkt.entityType === 'pirate_ship' || pkt.faction === 'pirates';
+    const spec = SHIP_CATALOG[pkt.entityType] || (isPirate ? SHIP_CATALOG.brig : SHIP_CATALOG.galleon);
+    const shipModel = ShipVisualService.createShipMesh(spec, isPirate, (pkt.faction as any) || (isPirate ? 'pirates' : 'sovereign'));
+    group.add(shipModel);
 
     this.scene.add(group);
 
     const interpolator = new SnapshotBuffer(15);
     interpolator.pushSnapshot({
       entityId: pkt.entityId,
-      serverTick: pkt.serverTick ?? 0,
+      serverTick: (pkt as any).serverTick ?? 0,
       serverTimestamp: pkt.serverTimestamp,
       x: pkt.transform.x,
+      y: pkt.transform.y ?? 0,
       z: pkt.transform.z,
       heading: pkt.transform.heading,
       speedKnots: pkt.transform.speedKnots,
@@ -395,8 +382,8 @@ export class VoyageNetworkClient {
       type: pkt.entityType,
       faction: pkt.faction,
       group,
-      hullMesh,
-      sailMeshes,
+      hullMesh: undefined,
+      sailMeshes: [],
       interpolator,
       lastDeltaTimestamp: performance.now(),
       health: pkt.health,
@@ -461,6 +448,7 @@ export class VoyageNetworkClient {
       serverTick: pkt.serverTick,
       serverTimestamp: pkt.serverTimestamp,
       x: pkt.x,
+      y: 0,
       z: pkt.z,
       heading: unquantizeHeading(pkt.headingQuantized),
       speedKnots: pkt.speedKnots,

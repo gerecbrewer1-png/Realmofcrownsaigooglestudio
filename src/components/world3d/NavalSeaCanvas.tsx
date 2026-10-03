@@ -425,9 +425,13 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     water.rotation.x = -Math.PI * 0.5;
     water.position.y = 0;
 
-    if (useSinglePassWater) {
-      water.material = singlePassWaterMaterial;
-    }
+    // 3. Dynamic Physical 3D Ocean Surface using SinglePassOceanMaterial with solid depth testing
+    water.material = singlePassWaterMaterial;
+    singlePassWaterMaterial.depthWrite = true;
+    singlePassWaterMaterial.depthTest = true;
+    singlePassWaterMaterial.transparent = true;
+    singlePassWaterMaterial.opacity = 0.94;
+    singlePassWaterMaterial.blending = THREE.NormalBlending;
     scene.add(water);
 
     // 3b. Initialize Phase 2 Ocean Reflection Optimization (throttled reflection pass & layer isolation)
@@ -557,9 +561,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
     });
 
-    // 5. Player Ship Setup with Sovereign Royal Crest
+    // 5. Player Ship Setup with Sovereign Royal Crest & GLTF Galleon Model
     const playerSpec = SHIP_CATALOG[shipType] || SHIP_CATALOG.galleon;
-    const playerMesh = ShipVisualService.createShipMesh(playerSpec, false, 'sovereign');
+    const playerMesh = ShipVisualService.createShipMesh(playerSpec, false, 'sovereign', '/assets/models/ship-heavy.glb');
     playerMesh.visible = true;
     scene.add(playerMesh);
 
@@ -747,6 +751,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         hullMax: spec.hullMax,
         sails: spec.sailsMax,
         sailsMax: spec.sailsMax,
+        crew: spec.crewMax,
         pos: new THREE.Vector3(pt.x, 0, pt.z),
         heading: pt.heading,
         speed: spec.baseSpeed * 0.55,
@@ -754,7 +759,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         reloadTimer: 3.0 + Math.random() * 4.0,
         isSinking: false,
         sinkTimer: 0,
-        wake,
+        wake: wake as any,
       };
 
       enemySpecs.push(enemyObj);
@@ -767,7 +772,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         faction: pt.faction,
         isPirate,
         mesh,
-        wake,
+        wake: wake as any,
         hull: spec.hullMax,
         hullMax: spec.hullMax,
         sails: spec.sailsMax,
@@ -845,7 +850,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
               mesh.rotation.y = heading;
               scene.add(mesh);
 
-              wake = ShipVisualService.createWakeMesh(spec.length, spec.beam);
+              wake = ShipVisualService.createWakeMesh(spec.length, spec.beam) as any;
               mesh.add(wake);
             }
 
@@ -856,7 +861,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
               faction,
               isPirate,
               mesh,
-              wake,
+              wake: wake as any,
               hull: spec.hullMax,
               hullMax: spec.hullMax,
               sails: spec.sailsMax,
@@ -900,6 +905,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
                 hullMax: spec.hullMax,
                 sails: spec.sailsMax,
                 sailsMax: spec.sailsMax,
+                crew: spec.crewMax,
                 pos: procEntity.pos,
                 heading,
                 speed: procEntity.speed,
@@ -1940,21 +1946,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           VoyageReflectionManager.tagProminentReflective(enemy.mesh);
         }
 
-        // Wall 2: Instanced mesh rendering for ships beyond 40m
-        const useGpuInstancing = distToCam > 40 && distToCam <= 350;
-        if (useGpuInstancing) {
-          const archetype = FleetGPUInstancer.getArchetype(enemy.spec);
-          fleetInstancer.addShipInstance(
-            archetype,
-            enemy.pos.x,
-            enemy.mesh.position.y,
-            enemy.pos.z,
-            enemy.heading
-          );
-          enemy.mesh.visible = false;
-        } else if (distToCam <= 40) {
-          enemy.mesh.visible = true;
-        }
+        // Authentic 3D GLTF ship model rendering (zero ghost box duplication)
+        enemy.mesh.visible = true;
 
         // Animate enemy sweep oars if equipped and visible
         if (enemy.mesh.visible && enemy.mesh.userData?.oarsNodes && enemy.mesh.userData.oarsNodes.length > 0) {
@@ -1973,7 +1966,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           enemy.mesh.userData.pennantNode.rotation.y = Math.PI * 0.5 + Math.sin(globalTime * 4.6 + enemy.pos.x) * 0.26;
         }
 
-        if ((enemy.mesh.visible || useGpuInstancing) && distToCam <= 120) {
+        if (enemy.mesh.visible && distToCam <= 120) {
           const uiPos = VoyageObjectPool.scratchVec1.copy(enemy.pos);
           uiPos.y += 18.0;
           uiManager.addNameplate(uiPos, enemy.name, enemy.faction === 'pirates', 3.0);
@@ -2002,20 +1995,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           const remotePitchSway = Math.cos(timeNow * 1.5 + remoteSeed) * 0.02 * remoteSpeedRatio;
           remote.group.rotation.x = remotePitchSway;
 
-          if (useGpuInstancing) {
-            const spec = SHIP_CATALOG[remote.type] || SHIP_CATALOG.frigate;
-            const archetype = FleetGPUInstancer.getArchetype(spec);
-            fleetInstancer.addShipInstance(
-              archetype,
-              remote.group.position.x,
-              remote.group.position.y,
-              remote.group.position.z,
-              remote.group.rotation.y
-            );
-            remote.group.visible = false;
-          } else if (distToCam <= 40) {
-            remote.group.visible = true;
-          }
+          // Authentic remote 3D ship rendering without ghost box duplication
+          remote.group.visible = true;
 
           if (distToCam <= 120) {
             const uiPos = VoyageObjectPool.scratchVec1.copy(remote.group.position);

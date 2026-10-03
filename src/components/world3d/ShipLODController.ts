@@ -126,10 +126,11 @@ export class ShipLODController {
 
     const lods: THREE.Group[] = ud.lodLevels || [];
     for (let i = 0; i < lods.length; i++) {
-      if (lods[i]) {
+      if (lods[i] && lods[i] !== shipGroup) {
         lods[i].visible = (i === targetLOD);
       }
     }
+    shipGroup.visible = true;
 
     const activeLOD = lods[targetLOD];
     if (activeLOD?.userData?.flagNode) {

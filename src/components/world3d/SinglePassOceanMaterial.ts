@@ -91,18 +91,24 @@ export class SinglePassOceanMaterial extends THREE.ShaderMaterial {
           float foamAmount = smoothstep(0.85, 1.0, 1.0 - normal.y);
           vec3 foamColor = vec3(0.87, 0.95, 0.98); // #dff2fa
 
-          // Base water gradient
-          vec3 baseWater = mix(deepColor, shallowColor, 0.4);
+          // Base colors: deep-sea navy and Caribbean turquoise crest
+          vec3 deepNavy = vec3(0.015, 0.07, 0.15);
+          vec3 crestTurquoise = vec3(0.06, 0.32, 0.40);
+          vec3 baseWater = mix(deepNavy, crestTurquoise, clamp(fresnel * 0.4 + (1.0 - normal.y) * 0.6, 0.0, 1.0));
 
           // Blend water with sky Fresnel + direct sun specular + foam
           vec3 color = mix(baseWater, skyColor, fresnel * 0.65) + specularColor;
           color = mix(color, foamColor, foamAmount * 0.8);
 
-          gl_FragColor = vec4(color, 0.96);
+          // Output solid alpha (0.94) so submerged keels and mountain bases are occluded by water surface
+          gl_FragColor = vec4(color, 0.94);
         }
       `,
       transparent: true,
+      opacity: 0.94,
       depthWrite: true,
+      depthTest: true,
+      blending: THREE.NormalBlending,
     });
   }
 

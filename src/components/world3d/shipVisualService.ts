@@ -25,6 +25,7 @@ export interface ShipSpec {
   castle: number;
   length: number;
   beam: number;
+  cannonRange?: number;
   hasOars?: boolean;
   figurehead?: 'dragon' | 'mermaid' | 'skull';
   isJunk?: boolean;
@@ -1401,124 +1402,147 @@ export class ShipVisualService {
    * Builds LOD3 (Horizon vessel >350m: ultra-light hull wedge + single combined sails plane, 3 meshes, ~40 tris)
    */
   public static createShipMeshLOD3(spec: ShipSpec, isPirate = false, factionOverride?: FactionId): THREE.Group {
-    const shipGroup = new THREE.Group();
-    shipGroup.name = `ship-${spec.id}-lod3`;
-
-    const faction: FactionId = isPirate ? 'pirates' : (factionOverride || (spec.livery.flag === 0xd97706 ? 'spain' : 'sovereign'));
-    const { length, beam } = spec;
-
-    const mats = this.getShipMaterials(spec, isPirate, faction);
-    const { hullMat, mainSailMat, flagMat } = mats;
-
-    const hullHeight = beam * 0.55;
-
-    // 1. Low-poly tapered Hull Wedge (Box)
-    const hullGeo = new THREE.BoxGeometry(beam * 0.9, hullHeight, length * 0.85);
-    const hullMesh = new THREE.Mesh(hullGeo, hullMat);
-    hullMesh.position.y = hullHeight * 0.4;
-    shipGroup.add(hullMesh);
-
-    // 2. Single Unified Fleet Sail Silhouette Plane
-    const sailGeo = new THREE.PlaneGeometry(beam * 1.6, length * 0.65);
-    const sailMesh = new THREE.Mesh(sailGeo, mainSailMat);
-    sailMesh.position.set(0, hullHeight + length * 0.35, 0);
-    sailMesh.rotation.y = 0;
-    shipGroup.add(sailMesh);
-
-    // 3. Small Stern Flag for Faction Recognition
-    const flagGeo = new THREE.PlaneGeometry(3.5, 2.2);
-    const flagMesh = new THREE.Mesh(flagGeo, flagMat);
-    flagMesh.position.set(0, hullHeight + 1.8, -length * 0.45);
-    shipGroup.add(flagMesh);
-
-    // No shadows on LOD3
-    shipGroup.traverse(obj => {
-      obj.castShadow = false;
-      obj.receiveShadow = false;
-    });
-
-    shipGroup.userData = {
-      spec,
-      isPirate,
-      faction,
-      sailsNode: sailMesh,
-      flagNode: flagMesh,
-    };
-
-    return shipGroup;
+    // Completely disable brown box and flat quad sail fallback
+    return this.createShipMesh(spec, isPirate, factionOverride);
   }
 
   /**
-   * Master Ship Factory: Assembles a complete 4-tier Hierarchical LOD Ship Group
+   * Completely disabled procedural fallback ship.
+   * No ship entity should ever mount a brown box with a white plane sail.
+   */
+  public static createProceduralFallbackShip(): THREE.Group {
+    console.warn('[ShipVisualService] createProceduralFallbackShip is completely disabled. No entity may mount a procedural fallback box.');
+    return new THREE.Group();
+  }
+
+  /**
+   * Master Ship Factory: Assembles high-fidelity GLTF Ship Groups with model caching
    */
   private static gltfLoader = new GLTFLoader();
+  private static gltfModelCache: Map<string, THREE.Group> = new Map();
+  private static gltfLoadPromises: Map<string, Promise<THREE.Group>> = new Map();
 
-  public static createShipMesh(spec: ShipSpec, isPirate = false, factionOverride?: FactionId): THREE.Group {
+  /**
+   * Loads and caches the real GLTF ship model with configured scaling (2.0), shadows, and waterline pivot (y = -1.4).
+   */
+  public static loadGLTFModel(url: string): Promise<THREE.Group> {
+    if (this.gltfModelCache.has(url)) {
+      return Promise.resolve(this.gltfModelCache.get(url)!);
+    }
+    if (this.gltfLoadPromises.has(url)) {
+      return this.gltfLoadPromises.get(url)!;
+    }
+
+    const promise = new Promise<THREE.Group>((resolve, reject) => {
+      this.gltfLoader.load(
+        url,
+        (gltf) => {
+          const model = gltf.scene;
+
+          // Apply uniform scaling: scale.setScalar(2.0)
+          model.scale.setScalar(2.0);
+
+          // Configure shadows, materials, and reflection tagging
+          model.traverse((child: any) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+
+              if (child.material) {
+                const mat = new THREE.MeshLambertMaterial({
+                  color: child.material.color,
+                  map: child.material.map,
+                });
+                child.material = mat;
+
+                const name = child.name.toLowerCase();
+                if (name.includes('sail')) {
+                  mat.onBeforeCompile = (shader) => {
+                    shader.uniforms.uTime = { value: 0 };
+                    shader.uniforms.uSailSetting = { value: 1.0 };
+                    mat.userData.shader = shader;
+                    shader.vertexShader = shader.vertexShader.replace(
+                      '#include <common>',
+                      '#include <common>\nuniform float uTime;\nuniform float uSailSetting;'
+                    );
+                    shader.vertexShader = shader.vertexShader.replace(
+                      '#include <begin_vertex>',
+                      [
+                        '#include <begin_vertex>',
+                        'transformed += normal * (sin(uTime * 2.0 + position.y * 1.5) * 0.12 * uSailSetting);'
+                      ].join('\n')
+                    );
+                  };
+                  child.userData.isSail = true;
+                }
+              }
+
+              const name = child.name.toLowerCase();
+              if (name.includes('hull')) {
+                VoyageReflectionManager.tagProminentReflective(child);
+              } else if (name.includes('cannon') || name.includes('barrel')) {
+                VoyageReflectionManager.tagMicroDetail(child);
+              }
+            }
+          });
+
+          // Match -Z forward convention
+          model.rotation.y = Math.PI;
+
+          // Adjust the pivot so the waterline sits naturally at y = 0 (submerging keel bottom ~1.4m below surface)
+          model.position.y = -1.4;
+
+          this.gltfModelCache.set(url, model);
+          resolve(model);
+        },
+        undefined,
+        (error) => {
+          console.error(`[ShipVisualService] Failed to load ${url}:`, error);
+          reject(error);
+        }
+      );
+    });
+
+    this.gltfLoadPromises.set(url, promise);
+    return promise;
+  }
+
+  public static createShipMesh(
+    spec: ShipSpec,
+    isPirate = false,
+    factionOverride?: FactionId,
+    modelUrlOverride?: string
+  ): THREE.Group {
     const root = new THREE.Group();
     root.name = `ship-${spec.id}`;
 
     const faction: FactionId = isPirate ? 'pirates' : (factionOverride || (spec.livery.flag === 0xd97706 ? 'spain' : 'sovereign'));
 
-    const size = spec.rank <= 3 ? 'heavy' : spec.rank <= 5 ? 'medium' : 'light';
-    const modelName = `ship-${size}`;
-    const url = `/assets/models/${modelName}.glb`;
+    // Galleons and heavy combat vessels map to ship-heavy.glb
+    const defaultModel = spec.rank <= 4 || spec.id === 'galleon' ? 'ship-heavy' : spec.rank <= 6 ? 'ship-medium' : 'ship-light';
+    const url = modelUrlOverride || `/assets/models/${defaultModel}.glb`;
 
-    this.gltfLoader.load(url, (gltf) => {
-      const model = gltf.scene;
-
-      model.traverse((child: any) => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-          
-          if (child.material) {
-             const mat = new THREE.MeshLambertMaterial({
-               color: child.material.color,
-               map: child.material.map,
-             });
-             child.material = mat;
-
-             const name = child.name.toLowerCase();
-             if (name.includes('sail')) {
-               mat.onBeforeCompile = (shader) => {
-                 shader.uniforms.uTime = { value: 0 };
-                 shader.uniforms.uSailSetting = { value: 1.0 };
-                 mat.userData.shader = shader;
-                 shader.vertexShader = shader.vertexShader.replace(
-                   '#include <common>',
-                   '#include <common>\nuniform float uTime;\nuniform float uSailSetting;'
-                 );
-                 shader.vertexShader = shader.vertexShader.replace(
-                   '#include <begin_vertex>',
-                   [
-                     '#include <begin_vertex>',
-                     'transformed += normal * (sin(uTime * 2.0 + position.y * 1.5) * 0.12 * uSailSetting);'
-                   ].join('\n')
-                 );
-               };
-               child.userData.isSail = true;
-             }
+    // Instant clone if already cached
+    const cached = this.gltfModelCache.get(url);
+    if (cached) {
+      const clone = cached.clone(true);
+      root.add(clone);
+    } else {
+      // Load asynchronously and attach immediately upon arrival
+      this.loadGLTFModel(url)
+        .then((loadedModel) => {
+          const clone = loadedModel.clone(true);
+          root.add(clone);
+        })
+        .catch((err) => {
+          console.warn(`[ShipVisualService] Failed to load GLTF ${url}, retrying ship-heavy:`, err);
+          if (url !== '/assets/models/ship-heavy.glb') {
+            this.loadGLTFModel('/assets/models/ship-heavy.glb').then((heavyModel) => {
+              root.add(heavyModel.clone(true));
+            });
           }
-
-          const name = child.name.toLowerCase();
-          if (name.includes('hull')) {
-            VoyageReflectionManager.tagProminentReflective(child);
-          } else if (name.includes('cannon') || name.includes('barrel')) {
-            VoyageReflectionManager.tagMicroDetail(child);
-          }
-        }
-      });
-
-      // Match -Z forward convention
-      model.rotation.y = Math.PI;
-      root.add(model);
-    }, undefined, (error) => {
-      console.warn(`Failed to load ${url}, falling back to procedural ship.`, error);
-      const fallbackLOD0 = this.createShipMeshLOD0(spec, isPirate, faction);
-      root.add(fallbackLOD0);
-      root.userData.lodLevels = [fallbackLOD0, fallbackLOD0, fallbackLOD0, fallbackLOD0];
-      root.userData.sailsNode = fallbackLOD0.userData?.sailsNode || fallbackLOD0;
-    });
+        });
+    }
 
     root.userData = {
       spec,
