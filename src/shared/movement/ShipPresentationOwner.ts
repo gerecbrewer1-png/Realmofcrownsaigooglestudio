@@ -69,7 +69,6 @@ export class ShipPresentationOwner {
         }
       });
     }
-    }
 
     // 5. Cache state for camera and external consumers
     this.latestRenderState = { ...state, x: safeX, y: safeY, z: safeZ, pitch: safePitch, heading: safeHeading, roll: safeRoll };
