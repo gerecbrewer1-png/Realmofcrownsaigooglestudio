@@ -304,6 +304,7 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
     const floorGeo = new THREE.PlaneGeometry(1000, 1000);
     floorGeo.rotateX(-Math.PI / 2);
     const floorMesh = new THREE.Mesh(floorGeo, new THREE.MeshBasicMaterial({ visible: false }));
+    floorMesh.position.y = 0.42; // Set NavMesh plane to cover modular dock platforms
     floorMesh.layers.set(2);
     navMeshGroup.add(floorMesh);
     scene.add(navMeshGroup);
@@ -536,10 +537,7 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
       boardwalk.position.set(0, 0.2, 20);
       worldGroup.add(boardwalk);
 
-      const pierGeo = new THREE.BoxGeometry(18, 1.6, 45);
-      const pier = new THREE.Mesh(pierGeo, woodMat);
-      pier.position.set(0, 0.2, -20);
-      worldGroup.add(pier);
+      // Deep water pier removed for modular GLTF docks
 
       // Grounded Spanish Galleon Shipwreck lodged in the cavern rocks
       const wreck = new THREE.Group();
@@ -661,12 +659,7 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
         quay.receiveShadow = true;
         worldGroup.add(quay);
 
-        // Deep-water Wooden Pier extending into harbor
-        const pierGeo = new THREE.BoxGeometry(22, 1.8, 60);
-        const pier = new THREE.Mesh(pierGeo, woodMat);
-        pier.position.set(0, 0.1, -25);
-        pier.receiveShadow = true;
-        worldGroup.add(pier);
+        // Deep-water Wooden Pier removed for modular GLTF docks
 
         // Cobblestone Main Town Plaza with Textured Gradient
         const plazaGeo = new THREE.BoxGeometry(140, 1.8, 50);

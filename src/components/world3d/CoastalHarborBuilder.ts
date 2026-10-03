@@ -73,6 +73,80 @@ export class CoastalHarborBuilder {
     // 3-4 patrolling guards, 2 dockworkers, 3 roaming animals... We'll tag these in userData
     rawGroup.userData.ambientLife = { guards: 4, dockworkers: 2, animals: 3 };
 
+    // --- MODULAR TIMBER DOCKS (Phase 2) ---
+    // Instantiate harvested GLTF assets for harbor docks, props, and lanterns.
+    const modularDocks = new THREE.Group();
+    modularDocks.name = 'modular-timber-docks';
+    modularDocks.position.set(0, 0, 0); // Position relative to harbor origin
+    rawGroup.add(modularDocks);
+
+    // Load Main Pier & Pilings
+    _gltfLoader.load('/assets/models/town/structure-platform-dock.glb', (gltf) => {
+      // Assemble main pier spine using linked platform docks resting on pilings
+      const zOffsets = [-15, -25, -35, -45]; // Extend out into harbor
+      zOffsets.forEach((z) => {
+        const spine = gltf.scene.clone();
+        spine.position.set(0, 0.4, z);
+        modularDocks.add(spine);
+      });
+    });
+
+    // Load Finger Piers (T-shaped)
+    _gltfLoader.load('/assets/models/town/structure-platform-dock-small.glb', (gltf) => {
+      // Add T-shaped finger piers extending sideways for ship mooring
+      const positions = [
+        { x: -10, z: -25, r: Math.PI / 2 },
+        { x: 10, z: -25, r: -Math.PI / 2 },
+        { x: -10, z: -45, r: Math.PI / 2 },
+        { x: 10, z: -45, r: -Math.PI / 2 },
+      ];
+      positions.forEach((pos) => {
+        const finger = gltf.scene.clone();
+        finger.position.set(pos.x, 0.4, pos.z);
+        finger.rotation.y = pos.r;
+        modularDocks.add(finger);
+        
+        // Add warm iron lanterns at the end of each finger pier
+        const lantern = new THREE.PointLight(0xf59e0b, 1.5, 20);
+        lantern.position.set(pos.x + (Math.sign(pos.x) * 2), 2.0, pos.z);
+        modularDocks.add(lantern);
+      });
+    });
+
+    // Load Props (Barrels & Crates)
+    const loadProp = (path: string, callback: (scene: THREE.Group) => void) => {
+      _gltfLoader.load(path, (gltf) => callback(gltf.scene));
+    };
+
+    loadProp('/assets/models/town/barrel.glb', (scene) => {
+      const positions = [{ x: -2, z: -16 }, { x: 3, z: -26 }, { x: -4, z: -36 }, { x: -1, z: -46 }];
+      positions.forEach((p) => {
+        const barrel = scene.clone();
+        barrel.position.set(p.x, 0.42, p.z);
+        modularDocks.add(barrel);
+      });
+    });
+
+    loadProp('/assets/models/town/crate.glb', (scene) => {
+      const positions = [{ x: 2, z: -18 }, { x: -3, z: -28 }, { x: 4, z: -38 }];
+      positions.forEach((p) => {
+        const crate = scene.clone();
+        crate.position.set(p.x, 0.42, p.z);
+        crate.rotation.y = Math.random() * Math.PI;
+        modularDocks.add(crate);
+      });
+    });
+
+    loadProp('/assets/models/town/crate-bottles.glb', (scene) => {
+      const positions = [{ x: 2, z: -18, y: 1.4 }, { x: -3, z: -28, y: 1.4 }];
+      positions.forEach((p) => {
+        const crate = scene.clone();
+        crate.position.set(p.x, 0.42 + p.y, p.z); // Stacked on top of crate
+        crate.rotation.y = Math.random() * Math.PI;
+        modularDocks.add(crate);
+      });
+    });
+
     return this.batchStaticMeshes(rawGroup);
   }
 
@@ -287,32 +361,8 @@ export class CoastalHarborBuilder {
     }
     harborGroup.add(seawallGroup);
 
-    // E. Wooden Quays / Deepwater Piers (Jutting into harbor water, local Z = -25 to 10)
-    const docksGroup = new THREE.Group();
-    const dockOffsets = [-55, 0, 55];
-    dockOffsets.forEach(dx => {
-      const pierGeo = new THREE.BoxGeometry(11 * s, 2.8 * s, 42 * s);
-      const pier = new THREE.Mesh(pierGeo, pierWoodMat);
-      pier.position.set(dx * s, 2.6 * s, -10 * s);
-      docksGroup.add(pier);
-
-      // Pilings
-      for (let p = -28; p <= 8; p += 10) {
-        for (let side = -1; side <= 1; side += 2) {
-          const stemGeo = new THREE.CylinderGeometry(0.55 * s, 0.55 * s, 10 * s, 6);
-          const stem = new THREE.Mesh(stemGeo, pierWoodMat);
-          stem.position.set((dx + side * 4.8) * s, 0, p * s);
-          docksGroup.add(stem);
-        }
-      }
-
-      // Crates & Barrels
-      const crateGeo = new THREE.BoxGeometry(2.5 * s, 2.5 * s, 2.5 * s);
-      const crate = new THREE.Mesh(crateGeo, pierWoodMat);
-      crate.position.set((dx + 2) * s, 4.4 * s, (-10 + (Math.abs(dx) % 7)) * s);
-      docksGroup.add(crate);
-    });
-    harborGroup.add(docksGroup);
+    // E. Removed procedural wooden quays to allow modular GLTF timber docks (Phase 2)
+    harborGroup.add(new THREE.Group());
 
     // F. Tiered Waterfront Port Town (local Z = 25 to 65)
     const cityGroup = new THREE.Group();
@@ -513,77 +563,8 @@ export class CoastalHarborBuilder {
       }
     });
 
-    // C. Massive Wooden Boardwalk Quays & Piers (Extending into deep water, Z = -15 to -70)
-    // Deep-water main pier: 16m wide, 55m long (easily accommodates 40m-60m vessels)
-    const pierGeo = new THREE.BoxGeometry(16 * s, 3.2 * s, 55 * s);
-    const pier = new THREE.Mesh(pierGeo, pierWoodMat);
-    pier.position.set(0, 2.2 * s, -30 * s);
-    havenGroup.add(pier);
-
-    // Cross T-Head Dock at pier end for flagship broadside mooring
-    const tHeadGeo = new THREE.BoxGeometry(50 * s, 3.2 * s, 14 * s);
-    const tHead = new THREE.Mesh(tHeadGeo, pierWoodMat);
-    tHead.position.set(0, 2.2 * s, -55 * s);
-    havenGroup.add(tHead);
-
-    // Heavy Pilings
-    for (let pz = -55; pz <= -8; pz += 10) {
-      for (let side = -1; side <= 1; side += 2) {
-        const stemGeo = new THREE.CylinderGeometry(0.75 * s, 0.75 * s, 12 * s, 6);
-        const stem = new THREE.Mesh(stemGeo, pierWoodMat);
-        stem.position.set(side * 7.5 * s, -2.0 * s, pz * s);
-        havenGroup.add(stem);
-      }
-    }
-
-    // Heavy Mooring Bollards
-    for (let bx = -20; bx <= 20; bx += 10) {
-      const bollardGeo = new THREE.CylinderGeometry(0.4 * s, 0.45 * s, 1.6 * s, 6);
-      const bollard = new THREE.Mesh(bollardGeo, stoneMat);
-      bollard.position.set(bx * s, 4.2 * s, -60 * s);
-      havenGroup.add(bollard);
-    }
-
-    // Cargo, Rum Barrels & Crates on the Pier
-    for (let c = 0; c < 8; c++) {
-      const barrelGeo = new THREE.CylinderGeometry(1.0 * s, 1.15 * s, 2.8 * s, 8);
-      const barrel = new THREE.Mesh(barrelGeo, pierWoodMat);
-      barrel.position.set((c % 2 === 0 ? 5.5 : -5.5) * s, 4.2 * s, (-18 - c * 4.5) * s);
-      havenGroup.add(barrel);
-
-      const crateGeo = new THREE.BoxGeometry(2.4 * s, 2.4 * s, 2.4 * s);
-      const crate = new THREE.Mesh(crateGeo, pierWoodMat);
-      crate.position.set((c % 2 === 0 ? -5.5 : 5.5) * s, 4.0 * s, (-16 - c * 4.5) * s);
-      crate.rotation.y = c * 0.4;
-      havenGroup.add(crate);
-    }
-
-    // Pirate / Faction Quayside Decor
-    if (isPirate) {
-      const skullPositions = [
-        { x: -9.5 * s, z: -55 * s },
-        { x: 9.5 * s, z: -55 * s },
-        { x: -9.5 * s, z: -35 * s },
-        { x: 9.5 * s, z: -35 * s },
-      ];
-      skullPositions.forEach(sp => {
-        const skullStake = this.createSpikedSkullStake(s * 1.3);
-        skullStake.position.set(sp.x, 3.8 * s, sp.z);
-        havenGroup.add(skullStake);
-      });
-
-      const gibbet = this.createHangingGibbetCage(s * 1.4);
-      gibbet.position.set(-10 * s, 10 * s, -45 * s);
-      havenGroup.add(gibbet);
-
-      const bz1 = this.createFireBrazier(s * 1.3);
-      bz1.position.set(-7 * s, 4.0 * s, -58 * s);
-      havenGroup.add(bz1);
-
-      const bz2 = this.createFireBrazier(s * 1.3);
-      bz2.position.set(7 * s, 4.0 * s, -58 * s);
-      havenGroup.add(bz2);
-    }
+    // C. Removed procedural wooden boardwalks to allow modular GLTF timber docks (Phase 2)
+    havenGroup.add(new THREE.Group());
 
     // D. Port Town Settlement Buildings (Tavern, Customs House, Storehouse, Governor)
     const buildingDefs = [
