@@ -1,10 +1,6 @@
 /**
  * REALM OF CROWNS — Snapshot Buffer & Interpolation for Remote Entities
- * Phase 18 Production Movement Architecture
- * 
- * Bounded history of timestamped server snapshots.
- * Provides smooth hermite/linear interpolation with interpolation delay,
- * and bounded forward extrapolation when network packets are delayed.
+ * Fixed Clock Domain & Optimized Backward Search
  */
 
 import { RemoteSnapshot } from './ShipMovementTypes';
@@ -38,47 +34,51 @@ export class SnapshotBuffer {
   }
 
   /**
-   * Samples the buffer at a given render timestamp with interpolation delay.
-   * 
-   * @param renderTimestampMs Current presentation timestamp (performance.now() or Date.now())
-   * @param interpolationDelayMs Target delay behind live server time (default 100ms)
+   * Samples the buffer using synchronized server time.
+   *
+   * @param currentServerTimeMs Synchronized server timestamp (clientNow + serverTimeOffset)
+   * @param interpolationDelayMs Target delay behind live server stream (typically 100ms - 150ms)
    */
-  public sample(renderTimestampMs: number, interpolationDelayMs = 100): RemoteSnapshot | null {
-    if (this.snapshots.length === 0) return null;
-    if (this.snapshots.length === 1) return this.snapshots[0];
+  public sample(currentServerTimeMs: number, interpolationDelayMs = 120): RemoteSnapshot | null {
+    const len = this.snapshots.length;
+    if (len === 0) return null;
+    if (len === 1) return this.snapshots[0];
 
-    const targetTime = renderTimestampMs - interpolationDelayMs;
-    const newest = this.snapshots[this.snapshots.length - 1];
+    const targetTime = currentServerTimeMs - interpolationDelayMs;
+    const newest = this.snapshots[len - 1];
     const oldest = this.snapshots[0];
 
-    // If target time is older than our oldest snapshot, clamp to oldest
+    // Clamped to oldest available snapshot if client time falls behind buffer history
     if (targetTime <= oldest.serverTimestamp) {
       return oldest;
     }
 
-    // If target time is newer than newest snapshot, perform bounded extrapolation
+    // Bounded extrapolation if packets arrive late
     if (targetTime > newest.serverTimestamp) {
-      const extrapolationSec = Math.min((targetTime - newest.serverTimestamp) / 1000, 0.25); // Max 250ms
+      const extrapolationSec = Math.min((targetTime - newest.serverTimestamp) / 1000, 0.25);
       const speedKnots = newest.speedKnots ?? 0;
-      const moveDist = speedKnots * 1.8 * extrapolationSec; // 1.8 multiplier
-      const forwardX = Math.sin(newest.heading);
-      const forwardZ = Math.cos(newest.heading);
+      const moveDist = speedKnots * 1.8 * extrapolationSec;
+      
+      // Account for turning intent if rudder is present
+      const turnRate = 18.0 * (Math.PI / 180);
+      const predictedHeading = newest.heading + (newest.rudder ?? 0) * turnRate * extrapolationSec;
+
+      const forwardX = Math.sin(predictedHeading);
+      const forwardZ = Math.cos(predictedHeading);
 
       return {
         ...newest,
+        heading: predictedHeading,
         x: newest.x + forwardX * moveDist,
         z: newest.z + forwardZ * moveDist,
       };
     }
 
-    // Find two surrounding snapshots for interpolation
+    // Fast backwards search: target time is almost always near the end of the buffer
     let p0 = oldest;
     let p1 = newest;
-    for (let i = 0; i < this.snapshots.length - 1; i++) {
-      if (
-        this.snapshots[i].serverTimestamp <= targetTime &&
-        this.snapshots[i + 1].serverTimestamp >= targetTime
-      ) {
+    for (let i = len - 2; i >= 0; i--) {
+      if (this.snapshots[i].serverTimestamp <= targetTime) {
         p0 = this.snapshots[i];
         p1 = this.snapshots[i + 1];
         break;

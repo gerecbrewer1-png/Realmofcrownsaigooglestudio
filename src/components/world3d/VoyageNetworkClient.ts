@@ -28,8 +28,9 @@ import {
   ShipDefeatedPacket
 } from '../../shared/mmoProtocol';
 
-import { ClientEntityInterpolator } from './MMOWorldPartition';
+import { SnapshotBuffer } from '../../shared/movement/SnapshotBuffer';
 import { MovementInputCommand, ShipSimulation, createDefaultShipSimulationState } from '../../shared/movement/index';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export type NetworkConnectionState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING';
 
@@ -41,7 +42,7 @@ export interface RemoteEntityDisplay {
   group: THREE.Group;
   hullMesh?: THREE.Mesh;
   sailMeshes: THREE.Mesh[];
-  interpolator: ClientEntityInterpolator;
+  interpolator: SnapshotBuffer;
   lastDeltaTimestamp: number;
   health: number;
   maxHealth: number;
@@ -121,6 +122,7 @@ export class VoyageNetworkClient {
   // Throttled client send state (30 Hz = 33.3ms)
   private lastSendTimestamp = 0;
   private readonly SEND_INTERVAL_MS = 33.33;
+  private static readonly SIMULATION_DT = 1 / 30; // 0.033333s
   private inputSequence = 0;
 
   // Heartbeat & Ping
@@ -142,6 +144,12 @@ export class VoyageNetworkClient {
   // Shared reusable geometries & materials for remote ships
   private static sharedHullGeometry: THREE.BufferGeometry | null = null;
   private static sharedSailGeometry: THREE.BufferGeometry | null = null;
+  private static sharedMastGeometry: THREE.BufferGeometry | null = null;
+  private static playerHullMat: THREE.Material | null = null;
+  private static pirateHullMat: THREE.Material | null = null;
+  private static mastMat: THREE.Material | null = null;
+  private static sailMat: THREE.Material | null = null;
+  private static pirateSailMat: THREE.Material | null = null;
 
   constructor(scene: THREE.Scene, authToken: string, customWsUrl?: string) {
     this.scene = scene;
@@ -163,9 +171,45 @@ export class VoyageNetworkClient {
     if (!VoyageNetworkClient.sharedHullGeometry) {
       // Procedural streamlined hull geometry for remote ships
       VoyageNetworkClient.sharedHullGeometry = new THREE.BoxGeometry(4.0, 3.2, 14.0);
+      
+      const loader = new GLTFLoader();
+      loader.load('/assets/models/ship-light.glb', (gltf) => {
+        gltf.scene.traverse((child: any) => {
+          if (child.isMesh && child.name.toLowerCase().includes('hull')) {
+            VoyageNetworkClient.sharedHullGeometry = child.geometry;
+          }
+        });
+        if (VoyageNetworkClient.sharedHullGeometry instanceof THREE.BoxGeometry) {
+          gltf.scene.traverse((child: any) => {
+            if (child.isMesh && VoyageNetworkClient.sharedHullGeometry instanceof THREE.BoxGeometry) {
+              VoyageNetworkClient.sharedHullGeometry = child.geometry;
+            }
+          });
+        }
+      }, undefined, (error) => {
+        console.warn('Failed to load shared fleet hull, falling back to procedural BoxGeometry.', error);
+      });
     }
     if (!VoyageNetworkClient.sharedSailGeometry) {
       VoyageNetworkClient.sharedSailGeometry = new THREE.PlaneGeometry(6.0, 7.5);
+    }
+    if (!VoyageNetworkClient.sharedMastGeometry) {
+      VoyageNetworkClient.sharedMastGeometry = new THREE.CylinderGeometry(0.2, 0.3, 14.0, 8);
+    }
+    if (!VoyageNetworkClient.playerHullMat) {
+      VoyageNetworkClient.playerHullMat = new THREE.MeshLambertMaterial({ color: 0x2b394a });
+    }
+    if (!VoyageNetworkClient.pirateHullMat) {
+      VoyageNetworkClient.pirateHullMat = new THREE.MeshLambertMaterial({ color: 0x221111 });
+    }
+    if (!VoyageNetworkClient.mastMat) {
+      VoyageNetworkClient.mastMat = new THREE.MeshLambertMaterial({ color: 0x3d2716 });
+    }
+    if (!VoyageNetworkClient.sailMat) {
+      VoyageNetworkClient.sailMat = new THREE.MeshLambertMaterial({ color: 0xf4ecd8, side: THREE.DoubleSide });
+    }
+    if (!VoyageNetworkClient.pirateSailMat) {
+      VoyageNetworkClient.pirateSailMat = new THREE.MeshLambertMaterial({ color: 0x6a1b1a, side: THREE.DoubleSide });
     }
   }
 
@@ -306,11 +350,7 @@ export class VoyageNetworkClient {
 
     // Procedural Hull
     const isPirate = pkt.entityType === 'pirate_ship';
-    const hullMat = new THREE.MeshStandardMaterial({
-      color: isPirate ? 0x221111 : 0x2b394a,
-      roughness: 0.6,
-      metalness: 0.1,
-    });
+    const hullMat = isPirate ? VoyageNetworkClient.pirateHullMat! : VoyageNetworkClient.playerHullMat!;
     const hullMesh = new THREE.Mesh(VoyageNetworkClient.sharedHullGeometry!, hullMat);
     hullMesh.position.y = 1.0;
     hullMesh.castShadow = true;
@@ -318,17 +358,11 @@ export class VoyageNetworkClient {
     group.add(hullMesh);
 
     // Procedural Mast & Sails
-    const sailMat = new THREE.MeshStandardMaterial({
-      color: isPirate ? 0x6a1b1a : 0xf4ecd8,
-      roughness: 0.8,
-      side: THREE.DoubleSide,
-    });
+    const sailMat = isPirate ? VoyageNetworkClient.pirateSailMat! : VoyageNetworkClient.sailMat!;
     const sailMeshes: THREE.Mesh[] = [];
 
     // Main mast
-    const mastGeo = new THREE.CylinderGeometry(0.2, 0.3, 14.0, 8);
-    const mastMat = new THREE.MeshStandardMaterial({ color: 0x3d2716, roughness: 0.9 });
-    const mastMesh = new THREE.Mesh(mastGeo, mastMat);
+    const mastMesh = new THREE.Mesh(VoyageNetworkClient.sharedMastGeometry!, VoyageNetworkClient.mastMat!);
     mastMesh.position.y = 7.0;
     group.add(mastMesh);
 
@@ -343,12 +377,16 @@ export class VoyageNetworkClient {
 
     this.scene.add(group);
 
-    const interpolator = new ClientEntityInterpolator({
+    const interpolator = new SnapshotBuffer(15);
+    interpolator.pushSnapshot({
+      entityId: pkt.entityId,
+      serverTick: pkt.serverTick ?? 0,
+      serverTimestamp: pkt.serverTimestamp,
       x: pkt.transform.x,
-      y: pkt.transform.y,
       z: pkt.transform.z,
       heading: pkt.transform.heading,
       speedKnots: pkt.transform.speedKnots,
+      health: pkt.health,
     });
 
     this.remoteEntities.set(pkt.entityId, {
@@ -373,16 +411,7 @@ export class VoyageNetworkClient {
 
     this.scene.remove(entry.group);
 
-    // Dispose geometries and materials
-    entry.group.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m) => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-    });
+    // Shared geometries and materials are not disposed here
 
     this.remoteEntities.delete(pkt.entityId);
   }
@@ -426,21 +455,18 @@ export class VoyageNetworkClient {
     entry.lastDeltaTimestamp = performance.now();
     entry.health = pkt.health;
 
-    // Push into Hermite/Linear interpolator
-    entry.interpolator.pushDelta(
-      {
-        packetType: 'delta',
-        entityId: pkt.entityId,
-        serverTimestamp: pkt.serverTimestamp,
-        x: pkt.x,
-        z: pkt.z,
-        headingQuantized: pkt.headingQuantized,
-        speedKnots: pkt.speedKnots,
-        health: pkt.health,
-        stateFlags: pkt.stateFlags,
-      },
-      performance.now()
-    );
+    // Push into SnapshotBuffer
+    entry.interpolator.pushSnapshot({
+      entityId: pkt.entityId,
+      serverTick: pkt.serverTick,
+      serverTimestamp: pkt.serverTimestamp,
+      x: pkt.x,
+      z: pkt.z,
+      heading: unquantizeHeading(pkt.headingQuantized),
+      speedKnots: pkt.speedKnots,
+      health: pkt.health,
+      stateFlags: pkt.stateFlags,
+    });
   }
 
   /**
@@ -449,63 +475,19 @@ export class VoyageNetworkClient {
    */
   public update(_deltaTimeSec: number): void {
     const now = performance.now();
+    const estimatedServerTime = Date.now() + this.serverTimeOffset;
 
     for (const remote of this.remoteEntities.values()) {
-      const transform = remote.interpolator.sample(now, 150);
-      remote.group.position.x = transform.x;
-      remote.group.position.z = transform.z;
-      remote.group.rotation.y = transform.heading;
+      const transform = remote.interpolator.sample(estimatedServerTime, 120);
+      if (transform) {
+        remote.group.position.x = transform.x;
+        remote.group.position.z = transform.z;
+        remote.group.rotation.y = transform.heading;
 
-      // Subtle roll with speed
-      const rollAngle = Math.sin(now * 0.003) * 0.04 * (transform.speedKnots / 10);
-      remote.group.rotation.z = rollAngle;
-    }
-  }
-
-  /**
-   * Transmits local ship transform and input stream to the server (throttled to 30 Hz).
-   */
-  public sendLocalTransform(
-    x: number,
-    y: number,
-    z: number,
-    heading: number,
-    speedKnots: number,
-    rudder = 0,
-    throttle = 1
-  ): void {
-    if (this.state !== 'CONNECTED' || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    const now = performance.now();
-    if (now - this.lastSendTimestamp < this.SEND_INTERVAL_MS) {
-      return;
-    }
-    this.lastSendTimestamp = now;
-
-    // Send input intent packet (foundation for Phase 2.9 server authority)
-    const seq = this.inputSequence++;
-    const inputPkt: PlayerInputPacket = {
-      type: 'PLAYER_INPUT',
-      sequence: seq,
-      clientTimestamp: Date.now(),
-      rudder,
-      throttle,
-      desiredHeading: heading,
-    };
-    this.sendPacket(inputPkt);
-
-    // Save pending input for prediction replay (bounded to 120 entries)
-    this.pendingInputs.push({
-      sequence: seq,
-      rudder,
-      throttle,
-      dt: this.SEND_INTERVAL_MS / 1000,
-      timestamp: now,
-    });
-    if (this.pendingInputs.length > 120) {
-      this.pendingInputs.shift();
+        // Subtle roll with speed
+        const rollAngle = Math.sin(now * 0.003) * 0.04 * (transform.speedKnots / 10);
+        remote.group.rotation.z = rollAngle;
+      }
     }
   }
 
@@ -517,14 +499,33 @@ export class VoyageNetworkClient {
       return;
     }
 
+    const now = performance.now();
+    if (now - this.lastSendTimestamp < this.SEND_INTERVAL_MS) {
+      return;
+    }
+    this.lastSendTimestamp = now;
+
+    const seq = this.inputSequence++;
     const inputPkt: PlayerInputPacket = {
       type: 'PLAYER_INPUT',
-      sequence: cmd.sequence,
+      sequence: seq,
       clientTimestamp: Date.now(),
       rudder: cmd.rudderTarget,
       throttle: cmd.sailSettingTarget,
     };
     this.sendPacket(inputPkt);
+
+    // Save pending input for prediction replay (bounded to 120 entries)
+    this.pendingInputs.push({
+      sequence: seq,
+      rudder: cmd.rudderTarget,
+      throttle: cmd.sailSettingTarget,
+      dt: VoyageNetworkClient.SIMULATION_DT,
+      timestamp: now,
+    });
+    if (this.pendingInputs.length > 120) {
+      this.pendingInputs.shift();
+    }
   }
 
   public sendFireRequest(broadside: 'port' | 'starboard', targetId?: string): void {
@@ -637,7 +638,7 @@ export class VoyageNetworkClient {
         sequence: inp.sequence,
         clientTick: inp.sequence,
         timestamp: inp.timestamp,
-        dt: inp.dt,
+        dt: VoyageNetworkClient.SIMULATION_DT,
         rudderTarget: inp.rudder,
         sailSettingTarget: inp.throttle,
         braking: false,
@@ -645,7 +646,7 @@ export class VoyageNetworkClient {
         rudder: inp.rudder,
         sailSetting: inp.throttle,
       };
-      simState = ShipSimulation.step(simState, cmd, inp.dt);
+      simState = ShipSimulation.step(simState, cmd, VoyageNetworkClient.SIMULATION_DT);
     }
 
     const simX = simState.x;
@@ -698,11 +699,15 @@ export class VoyageNetworkClient {
     let resHeading = validCurrentHeading;
     let resSpeed = validCurrentSpeed;
 
-    if (err < 0.05) {
-      // Tiny error (< 0.05m): ignore to prevent transform oscillation
+    if (err < 0.10) {
+      // Tiny error (< 0.10m): ignore to prevent transform oscillation
       tier = 'tiny';
+      resX = validCurrentX;
+      resZ = validCurrentZ;
+      resHeading = validCurrentHeading;
+      resSpeed = validCurrentSpeed;
     } else if (err < 0.50) {
-      // Small error: smooth convergence into the < 0.05m deadband
+      // Small error: smooth convergence into the < 0.10m deadband
       tier = 'small';
       const blend = Math.min(1.0, validDt * 5.0);
       resX = THREE.MathUtils.lerp(validCurrentX, simX, blend);

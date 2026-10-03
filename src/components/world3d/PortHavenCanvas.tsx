@@ -298,6 +298,15 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
     const height = container.clientHeight;
 
     const scene = new THREE.Scene();
+    const navMeshGroup = new THREE.Group();
+    navMeshGroup.name = "navMeshLayer";
+    navMeshGroup.layers.set(2);
+    const floorGeo = new THREE.PlaneGeometry(1000, 1000);
+    floorGeo.rotateX(-Math.PI / 2);
+    const floorMesh = new THREE.Mesh(floorGeo, new THREE.MeshBasicMaterial({ visible: false }));
+    floorMesh.layers.set(2);
+    navMeshGroup.add(floorMesh);
+    scene.add(navMeshGroup);
     const camera = new THREE.PerspectiveCamera(55, width / height, 0.5, 2000);
     camera.position.set(0, 8, 30);
 
@@ -1173,6 +1182,10 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
     let lastTime = performance.now();
     let animTime = 0;
 
+    const verticalRaycaster = new THREE.Raycaster();
+    verticalRaycaster.layers.set(2);
+    const downwardVec = new THREE.Vector3(0, -1, 0);
+
     const animate = (time: number) => {
       animFrameId.current = requestAnimationFrame(animate);
       const dt = Math.min((time - lastTime) / 1000, 0.1);
@@ -1283,6 +1296,14 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
       heroPositionRef.current.x = THREE.MathUtils.clamp(nextX, minX, maxX);
       heroPositionRef.current.z = THREE.MathUtils.clamp(nextZ, minZ, maxZ);
 
+      // Decoupled Vertical Raycast against NavMesh (Layer 2)
+      verticalRaycaster.set(new THREE.Vector3(heroPositionRef.current.x, 100.0, heroPositionRef.current.z), downwardVec);
+      const intersects = verticalRaycaster.intersectObject(navMeshGroup, true);
+      if (intersects.length > 0) {
+         heroPositionRef.current.y = intersects[0].point.y;
+      } else {
+         heroPositionRef.current.y = 1.0;
+      }
       // Shortest Angular Heading Interpolation (prevents 360-degree snap spin)
       if (currentSpeed > 0.15) {
         const targetRotY = Math.atan2(heroVelocityRef.current.x, heroVelocityRef.current.z);
@@ -1304,7 +1325,7 @@ export const PortHavenCanvas: React.FC<PortHavenCanvasProps> = ({
 
       // Update hero mesh position in scene
       if (heroMeshRef.current) {
-        heroMeshRef.current.position.set(heroPositionRef.current.x, 1.0, heroPositionRef.current.z);
+        heroMeshRef.current.position.set(heroPositionRef.current.x, heroPositionRef.current.y, heroPositionRef.current.z);
         heroMeshRef.current.rotation.y = heroHeadingRef.current;
       }
 

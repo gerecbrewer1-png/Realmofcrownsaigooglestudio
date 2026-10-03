@@ -58,6 +58,17 @@ export class ShipPresentationOwner {
       const safeWakeScale = Number.isFinite(state.wakeScale) ? state.wakeScale : 1.0;
       wakeMesh.scale.set(1.0, safeWakeScale, 1.0);
       wakeMesh.visible = Boolean(state.wakeVisible);
+      
+      const targetOpacity = Math.min(1.0, (state.speedKnots || 0) / 12.0);
+      wakeMesh.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mat = (child as THREE.Mesh).material;
+          if (mat && (mat as THREE.Material).transparent) {
+            (mat as THREE.MeshBasicMaterial).opacity = targetOpacity;
+          }
+        }
+      });
+    }
     }
 
     // 5. Cache state for camera and external consumers

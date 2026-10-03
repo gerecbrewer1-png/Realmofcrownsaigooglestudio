@@ -70,8 +70,8 @@ export class SinglePassOceanMaterial extends THREE.ShaderMaterial {
 
         void main() {
           // Counter-scrolling wave normal coordinates (Voyage Century / Bounty Bay pattern)
-          vec2 uv1 = vWorldPosition.xz * 0.006 + vec2(time * 0.012, time * 0.007);
-          vec2 uv2 = vWorldPosition.xz * 0.009 - vec2(time * 0.009, -time * 0.014);
+          vec2 uv1 = vWorldPosition.xz * 0.006 + vec2(0.04, 0.02) * time;
+          vec2 uv2 = vWorldPosition.xz * 0.009 * 1.5 + vec2(-0.02, 0.03) * time;
 
           vec3 n1 = texture2D(normalMap1, uv1).rgb * 2.0 - 1.0;
           vec3 n2 = texture2D(normalMap2, uv2).rgb * 2.0 - 1.0;
@@ -84,14 +84,19 @@ export class SinglePassOceanMaterial extends THREE.ShaderMaterial {
 
           // Sun specular highlight (Blinn-Phong)
           vec3 halfDir = normalize(sunDirection + viewDir);
-          float specAngle = max(0.0, dot(normal, halfDir));
-          float specular = pow(specAngle, 96.0) * 2.2;
+          float spec = pow(max(dot(normal, halfDir), 0.0), 120.0);
+          vec3 specularColor = vec3(1.0, 0.95, 0.8) * spec * 1.5;
+
+          // Foam based on steep normal slopes
+          float foamAmount = smoothstep(0.85, 1.0, 1.0 - normal.y);
+          vec3 foamColor = vec3(0.87, 0.95, 0.98); // #dff2fa
 
           // Base water gradient
           vec3 baseWater = mix(deepColor, shallowColor, 0.4);
 
-          // Blend water with sky Fresnel + direct sun specular
-          vec3 color = mix(baseWater, skyColor, fresnel * 0.65) + sunColor * specular;
+          // Blend water with sky Fresnel + direct sun specular + foam
+          vec3 color = mix(baseWater, skyColor, fresnel * 0.65) + specularColor;
+          color = mix(color, foamColor, foamAmount * 0.8);
 
           gl_FragColor = vec4(color, 0.96);
         }

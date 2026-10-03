@@ -29,15 +29,15 @@ export interface VoyageQualitySettings {
 export const QUALITY_PRESETS: Record<VoyageQualityTier, VoyageQualitySettings> = {
   LOW: {
     tier: 'LOW',
-    shadowsEnabled: true,
+    shadowsEnabled: false,
     shadowMapSize: 512,
     shadowDistance: 50,
     shadowBias: -0.001,
-    reflectionEnabled: true,
-    reflectionUpdateInterval: 4, // 15 FPS throttled reflection instead of flat disabled sea
+    reflectionEnabled: false,
+    reflectionUpdateInterval: 0,
     reflectionTextureSize: 256,
     lodDistanceMultiplier: 0.85,
-    maxVisibleShips: 10,
+    maxVisibleShips: 100,
     particleLimit: 35,
     wakeQuality: 'low',
     riggingDetail: 'minimal',
@@ -53,11 +53,11 @@ export const QUALITY_PRESETS: Record<VoyageQualityTier, VoyageQualitySettings> =
     reflectionUpdateInterval: 4, // 15 FPS reflection at 60 FPS gameplay
     reflectionTextureSize: 256,
     lodDistanceMultiplier: 0.85,
-    maxVisibleShips: 14,
+    maxVisibleShips: 120,
     particleLimit: 50,
     wakeQuality: 'medium',
     riggingDetail: 'medium',
-    pixelRatioCap: 1.5,
+    pixelRatioCap: 1.25,
   },
   HIGH: {
     tier: 'HIGH',
@@ -94,8 +94,17 @@ export const QUALITY_PRESETS: Record<VoyageQualityTier, VoyageQualitySettings> =
 };
 
 export class VoyageQualityManager {
-  private static currentTier: VoyageQualityTier = 'HIGH';
-  private static settings: VoyageQualitySettings = { ...QUALITY_PRESETS.HIGH };
+  private static detectInitialTier(): VoyageQualityTier {
+    if (typeof navigator !== 'undefined') {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isTouch = (typeof window !== 'undefined' && ('ontouchstart' in window || (navigator as any).maxTouchPoints > 0));
+      if (isMobile || isTouch) return 'LOW';
+    }
+    return 'HIGH';
+  }
+
+  private static currentTier: VoyageQualityTier = VoyageQualityManager.detectInitialTier();
+  private static settings: VoyageQualitySettings = { ...QUALITY_PRESETS[VoyageQualityManager.currentTier] };
   private static adaptiveEnabled = false;
 
   // Adaptive Performance Monitoring State

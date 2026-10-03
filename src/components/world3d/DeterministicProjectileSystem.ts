@@ -19,6 +19,7 @@ export interface FireCannonParams {
   sourceEntityId?: string;
   targetEntityId?: string;
   targetPos?: THREE.Vector3;
+  ammoType?: string;
 }
 
 export interface ProjectileImpactEvent {
@@ -28,6 +29,7 @@ export interface ProjectileImpactEvent {
   targetEntityId?: string;
   damage: number;
   fromPlayer: boolean;
+  ammoType?: string;
 }
 
 export class DeterministicProjectileSystem {
@@ -45,6 +47,7 @@ export class DeterministicProjectileSystem {
   private buffer: Float32Array;
   private targetEntityIds: (string | null)[];
   private sourceEntityIds: (string | null)[];
+  private ammoTypes: (string | null)[];
   private freeIndices: number[] = [];
   private activeCount = 0;
 
@@ -63,6 +66,7 @@ export class DeterministicProjectileSystem {
     this.buffer = new Float32Array(DeterministicProjectileSystem.MAX_PROJECTILES * DeterministicProjectileSystem.STRIDE);
     this.targetEntityIds = new Array(DeterministicProjectileSystem.MAX_PROJECTILES).fill(null);
     this.sourceEntityIds = new Array(DeterministicProjectileSystem.MAX_PROJECTILES).fill(null);
+    this.ammoTypes = new Array(DeterministicProjectileSystem.MAX_PROJECTILES).fill(null);
 
     // Initialize free stack
     for (let i = DeterministicProjectileSystem.MAX_PROJECTILES - 1; i >= 0; i--) {
@@ -138,6 +142,7 @@ export class DeterministicProjectileSystem {
 
     this.targetEntityIds[idx] = params.targetEntityId || null;
     this.sourceEntityIds[idx] = params.sourceEntityId || null;
+    this.ammoTypes[idx] = params.ammoType || 'balls';
 
     this.activeCount++;
     return idx;
@@ -189,6 +194,7 @@ export class DeterministicProjectileSystem {
             targetEntityId,
             damage,
             fromPlayer,
+            ammoType: this.ammoTypes[i] || 'balls',
           });
         }
 
@@ -196,6 +202,7 @@ export class DeterministicProjectileSystem {
         this.buffer[offset + 11] = 0;
         this.targetEntityIds[i] = null;
         this.sourceEntityIds[i] = null;
+        this.ammoTypes[i] = null;
         this.freeIndices.push(i);
         this.activeCount--;
 

@@ -26,12 +26,21 @@ export class VoyageReflectionManager {
   private static updateInterval = 2; // Default: update reflection every 2nd frame (30 FPS)
   private static enabled = true;
   private static originalOnBeforeRender: ((renderer: any, scene: any, camera: any) => void) | null = null;
+  private static isMobileDevice = false;
+  private static fallbackTexture: THREE.DataTexture | null = null;
 
   public static initialize(water: Water, mainCamera: THREE.PerspectiveCamera, initialInterval = 2) {
     this.waterInstance = water;
     this.updateInterval = initialInterval;
     this.frameCounter = 0;
     this.enabled = initialInterval > 0;
+    this.isMobileDevice = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (!this.fallbackTexture) {
+      const data = new Uint8Array([70, 130, 180, 255]);
+      this.fallbackTexture = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+      this.fallbackTexture.needsUpdate = true;
+    }
 
     // Enable Layer 0 and Layer 1 on the main camera so player sees everything
     mainCamera.layers.enable(VOYAGE_LAYERS.DEFAULT_AND_REFLECTION);
@@ -50,12 +59,14 @@ export class VoyageReflectionManager {
       water.onBeforeRender = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => {
         // Reflection isolation test: allow DEV bypass toggle or disabled interval
         const isBypassed = typeof window !== 'undefined' && (window as any).__BYPASS_REFLECTION__ === true;
-        const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         const qualityTier = VoyageQualityManager.getTier();
-        const isLowTier = qualityTier !== 'HIGH';
+        const isLowTier = qualityTier !== 'HIGH' && qualityTier !== 'ULTRA';
 
         // Phase 3: Bypass planar reflection on mobile or below HIGH quality tier to halve active draw calls
-        if (!this.enabled || this.updateInterval === 0 || isBypassed || isMobile || isLowTier) {
+        if (!this.enabled || this.updateInterval === 0 || isBypassed || this.isMobileDevice || isLowTier) {
+          if (this.fallbackTexture && this.waterInstance && (this.waterInstance as any).material?.uniforms?.mirrorSampler) {
+            (this.waterInstance as any).material.uniforms.mirrorSampler.value = this.fallbackTexture;
+          }
           return; // Skip reflection render completely
         }
 
@@ -82,6 +93,10 @@ export class VoyageReflectionManager {
     this.waterInstance = null;
     this.originalOnBeforeRender = null;
     this.frameCounter = 0;
+    if (this.fallbackTexture) {
+      this.fallbackTexture.dispose();
+      this.fallbackTexture = null;
+    }
   }
 
   public static setUpdateInterval(interval: number) {
@@ -98,10 +113,9 @@ export class VoyageReflectionManager {
   }
 
   public static getStatusString(): string {
-    const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     const qualityTier = VoyageQualityManager.getTier();
-    if (isMobile) return 'OFF (Mobile Specular Mode)';
-    if (qualityTier !== 'HIGH') return `OFF (${qualityTier} Specular Mode)`;
+    if (this.isMobileDevice) return 'OFF (Mobile Specular Mode)';
+    if (qualityTier !== 'HIGH' && qualityTier !== 'ULTRA') return `OFF (${qualityTier} Specular Mode)`;
     if (!this.enabled || this.updateInterval === 0) return 'OFF (Mobile Saver)';
     if (this.updateInterval === 1) return 'ON (Every Frame)';
     return `ON (1/${this.updateInterval} Frames)`;

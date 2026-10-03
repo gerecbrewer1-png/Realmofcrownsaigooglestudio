@@ -49,6 +49,7 @@ import {
   NavalCombatLogTicker,
   NavalIslandAnchorPrompt,
 } from './NavalVoyageHUDComponents';
+import { DeckBoardingModal } from './world3d/DeckBoardingModal';
 import { PortHavenCanvas } from './world3d/PortHavenCanvas';
 import { SHIP_CATALOG, ShipSpec } from './world3d/shipVisualService';
 import {
@@ -528,76 +529,34 @@ export const NavalVoyageView: React.FC<NavalVoyageViewProps> = ({
     soundEngine.playBattleVictory();
     soundEngine.playCutlassClash();
     setBoardingTarget(enemy);
-    setBoardingAllyCrew(status.playerCrew);
-    setBoardingEnemyCrew(enemy.crew || 80);
-    setBoardingInitialEnemyCrew(enemy.crew || 80);
-    setBoardingRound(1);
-    setBoardingOutcome('ongoing');
-    setBoardingLog([
-      `Grappling hooks locked onto ${enemy.name}! Marines prepare to board!`,
-      `Both crews collide on the smoke-filled bloodstained deck!`,
-    ]);
   };
 
-  // Perform Boarding Round Action
-  const performBoardingAction = (action: 'cutlass' | 'pistol' | 'charge') => {
-    if (boardingOutcome !== 'ongoing' || !boardingTarget) return;
-
-    soundEngine.playCutlassClash();
-    const newRound = boardingRound + 1;
-    setBoardingRound(newRound);
-
-    let allyLosses = 0;
-    let enemyLosses = 0;
-    let actionDesc = '';
-
-    if (action === 'cutlass') {
-      enemyLosses = Math.floor(14 + Math.random() * 16);
-      allyLosses = Math.floor(4 + Math.random() * 8);
-      actionDesc = `Cutlass melee clash! You cut down ${enemyLosses} corsairs, losing ${allyLosses} marines.`;
-    } else if (action === 'pistol') {
-      soundEngine.playCannonFire();
-      enemyLosses = Math.floor(22 + Math.random() * 20);
-      allyLosses = Math.floor(2 + Math.random() * 5);
-      actionDesc = `Point-blank pistol volley! Lethal blast kills ${enemyLosses} enemy officers!`;
+  const resolveBoarding = (result: 'plunder' | 'capture' | 'disengage', loot?: { gold: number; goods: string }, remainingPlayerCrew?: number) => {
+    if (remainingPlayerCrew !== undefined) {
+       setStatus(s => ({...s, playerCrew: remainingPlayerCrew}));
+    }
+    
+    if (result === 'plunder') {
+       soundEngine.playFanfare();
+       if (onHarvestBooty && loot) {
+         onHarvestBooty({ gold: loot.gold, gems: Math.floor(loot.gold/10), wood: 350, relics: 2 });
+       }
+       setCargoHold((prev) => ({
+         ...prev,
+         [loot?.goods.toLowerCase() || 'rum']: (prev[loot?.goods.toLowerCase() || 'rum'] || 0) + 10,
+       }));
+       const event = new CustomEvent('voyage_boarding_resolved', { detail: { targetId: boardingTarget?.id, sink: true } });
+       window.dispatchEvent(event);
+    } else if (result === 'capture') {
+       soundEngine.playFanfare();
+       const event = new CustomEvent('voyage_boarding_resolved', { detail: { targetId: boardingTarget?.id, sink: true } });
+       window.dispatchEvent(event);
     } else {
-      soundEngine.playMarch();
-      enemyLosses = Math.floor(30 + Math.random() * 25);
-      allyLosses = Math.floor(10 + Math.random() * 14);
-      actionDesc = `Fierce Marines bayonet charge! Enemy line collapses, ${enemyLosses} enemy fallen!`;
+       soundEngine.playError();
+       const event = new CustomEvent('voyage_boarding_resolved', { detail: { targetId: boardingTarget?.id, sink: false } });
+       window.dispatchEvent(event);
     }
-
-    const updatedAllyCrew = Math.max(0, boardingAllyCrew - allyLosses);
-    const updatedEnemyCrew = Math.max(0, boardingEnemyCrew - enemyLosses);
-
-    setBoardingAllyCrew(updatedAllyCrew);
-    setBoardingEnemyCrew(updatedEnemyCrew);
-
-    const updatedLog = [actionDesc, ...boardingLog].slice(0, 6);
-
-    if (updatedEnemyCrew <= 0 || updatedEnemyCrew <= boardingInitialEnemyCrew * 0.25) {
-      setBoardingOutcome('victory');
-      soundEngine.playFanfare();
-      updatedLog.unshift(`VICTORY! The enemy captain surrenders! ${boardingTarget.name} is captured!`);
-      const prizeGold = 1800 + Math.floor(Math.random() * 1500);
-      const prizeGems = 35 + Math.floor(Math.random() * 25);
-      if (onHarvestBooty) {
-        onHarvestBooty({ gold: prizeGold, gems: prizeGems, wood: 350, relics: 2 });
-      }
-      setCargoHold((prev) => ({
-        ...prev,
-        rum: (prev.rum || 0) + 8,
-        silver: (prev.silver || 0) + 4,
-        silk: (prev.silk || 0) + 6,
-        spices: (prev.spices || 0) + 5,
-      }));
-    } else if (updatedAllyCrew <= 0) {
-      setBoardingOutcome('defeat');
-      soundEngine.playError();
-      updatedLog.unshift(`DEFEAT! Boarding party repelled! We must withdraw!`);
-    }
-
-    setBoardingLog(updatedLog);
+    setBoardingTarget(null);
   };
 
   // Harbor Docking Handler
@@ -1351,127 +1310,18 @@ export const NavalVoyageView: React.FC<NavalVoyageViewProps> = ({
       {/* MODAL 1: BOARDING ACTION DECK COMBAT                      */}
       {/* ========================================================= */}
       {boardingTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 animate-in fade-in">
-          <div className="bg-slate-900 border-2 border-red-500/80 rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative text-slate-100">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <Swords className="w-7 h-7 text-red-400 animate-pulse" />
-                <div>
-                  <h3 className="text-xl font-black text-amber-300 tracking-wide">
-                    BOARDING ACTION: {boardingTarget.name}
-                  </h3>
-                  <div className="text-xs text-slate-400">Round {boardingRound} • Clash of Cutlasses</div>
-                </div>
-              </div>
-              <button
-                onClick={() => setBoardingTarget(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Crew Health Meters */}
-            <div className="grid grid-cols-2 gap-6 my-6">
-              {/* Ally Marines */}
-              <div className="bg-slate-950/80 border border-blue-500/50 rounded-xl p-4">
-                <div className="flex justify-between items-center text-xs font-bold text-blue-300 mb-2">
-                  <span>OUR BOARDING PARTY</span>
-                  <span className="text-base font-black text-white">{boardingAllyCrew}</span>
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-300"
-                    style={{ width: `${Math.min(100, Math.round((boardingAllyCrew / status.playerCrew) * 100))}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Enemy Pirates */}
-              <div className="bg-slate-950/80 border border-red-500/50 rounded-xl p-4">
-                <div className="flex justify-between items-center text-xs font-bold text-red-300 mb-2">
-                  <span>ENEMY PIRATE CREW</span>
-                  <span className="text-base font-black text-white">{boardingEnemyCrew}</span>
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
-                  <div
-                    className="h-full bg-red-500 transition-all duration-300"
-                    style={{
-                      width: `${Math.min(100, Math.round((boardingEnemyCrew / boardingInitialEnemyCrew) * 100))}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Combat Action Buttons */}
-            {boardingOutcome === 'ongoing' ? (
-              <div className="grid grid-cols-3 gap-3 mb-6">
-                <button
-                  onClick={() => performBoardingAction('cutlass')}
-                  className="p-3.5 rounded-xl bg-gradient-to-b from-amber-700 to-amber-900 hover:from-amber-600 hover:to-amber-800 border border-amber-500 text-amber-100 font-bold text-xs flex flex-col items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
-                >
-                  <Swords className="w-5 h-5 text-amber-300" />
-                  <span>Cutlass Strike</span>
-                  <span className="text-[10px] text-amber-300/70 font-normal">Moderate damage</span>
-                </button>
-
-                <button
-                  onClick={() => performBoardingAction('pistol')}
-                  className="p-3.5 rounded-xl bg-gradient-to-b from-red-700 to-red-900 hover:from-red-600 hover:to-red-800 border border-red-500 text-red-100 font-bold text-xs flex flex-col items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
-                >
-                  <Crosshair className="w-5 h-5 text-red-300" />
-                  <span>Pistol Volley</span>
-                  <span className="text-[10px] text-red-300/70 font-normal">High burst strike</span>
-                </button>
-
-                <button
-                  onClick={() => performBoardingAction('charge')}
-                  className="p-3.5 rounded-xl bg-gradient-to-b from-blue-700 to-blue-900 hover:from-blue-600 hover:to-blue-800 border border-blue-500 text-blue-100 font-bold text-xs flex flex-col items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
-                >
-                  <Users className="w-5 h-5 text-blue-300" />
-                  <span>Marines Charge</span>
-                  <span className="text-[10px] text-blue-300/70 font-normal">All-out assault</span>
-                </button>
-              </div>
-            ) : boardingOutcome === 'victory' ? (
-              <div className="mb-6 p-4 rounded-xl bg-emerald-950/80 border border-emerald-500/80 text-center">
-                <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
-                <h4 className="text-lg font-black text-emerald-300">PRIZE VESSEL CAPTURED!</h4>
-                <p className="text-xs text-emerald-200 mt-1">
-                  You plundered the captain's coffer and seized all cargo!
-                </p>
-                <button
-                  onClick={() => setBoardingTarget(null)}
-                  className="mt-3 px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase cursor-pointer"
-                >
-                  Claim Spoils & Return to Helm
-                </button>
-              </div>
-            ) : (
-              <div className="mb-6 p-4 rounded-xl bg-red-950/80 border border-red-500/80 text-center">
-                <Skull className="w-10 h-10 text-red-400 mx-auto mb-2" />
-                <h4 className="text-lg font-black text-red-300">BOARDING FAILED</h4>
-                <p className="text-xs text-red-200 mt-1">Our marines had to retreat to our ship.</p>
-                <button
-                  onClick={() => setBoardingTarget(null)}
-                  className="mt-3 px-6 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase cursor-pointer"
-                >
-                  Disengage & Cut Lines
-                </button>
-              </div>
-            )}
-
-            {/* Combat Action Log */}
-            <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 max-h-32 overflow-y-auto space-y-1 font-mono text-[11px] text-slate-300">
-              {boardingLog.map((log, idx) => (
-                <div key={idx} className={idx === 0 ? 'text-amber-300 font-bold' : 'text-slate-400'}>
-                  {log}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <DeckBoardingModal
+          enemy={{
+             id: boardingTarget.id,
+             name: boardingTarget.name,
+             hull: boardingTarget.hull,
+             hullMax: boardingTarget.hullMax,
+             crew: boardingTarget.crew,
+             rank: boardingTarget.rank,
+          }}
+          playerCrew={status.playerCrew}
+          onResolve={resolveBoarding}
+        />
       )}
 
       {/* ========================================================= */}

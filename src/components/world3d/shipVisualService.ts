@@ -7,6 +7,8 @@
 
 import * as THREE from 'three';
 import { ShipInstanceManager, InstancedItemTransform } from './ShipInstanceManager';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { VoyageReflectionManager } from './VoyageReflectionManager';
 
 export interface ShipSpec {
   id: string;
@@ -457,16 +459,36 @@ export class ShipVisualService {
     const ropeMat = this.getCachedMaterial('shared_rope', () => new THREE.MeshBasicMaterial({
       color: 0x1c1917,
     }));
-    const mainSailMat = this.getCachedMaterial(`${keyPrefix}_mainSail`, () => new THREE.MeshStandardMaterial({
+    const patchSailMaterial = (mat: THREE.MeshStandardMaterial) => {
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uTime = { value: 0 };
+        shader.uniforms.uSailSetting = { value: 1.0 };
+        mat.userData.shader = shader;
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <common>',
+          '#include <common>\nuniform float uTime;\nuniform float uSailSetting;'
+        );
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <begin_vertex>',
+          [
+            '#include <begin_vertex>',
+            'transformed += normal * (sin(uTime * 2.0 + position.y * 1.5) * 0.12 * uSailSetting);'
+          ].join('\n')
+        );
+      };
+      return mat;
+    };
+
+    const mainSailMat = this.getCachedMaterial(`${keyPrefix}_mainSail`, () => patchSailMaterial(new THREE.MeshStandardMaterial({
       map: SailHeraldryService.getSailTexture(faction, true),
       roughness: 0.92,
       side: THREE.DoubleSide,
-    }));
-    const topSailMat = this.getCachedMaterial(`${keyPrefix}_topSail`, () => new THREE.MeshStandardMaterial({
+    })));
+    const topSailMat = this.getCachedMaterial(`${keyPrefix}_topSail`, () => patchSailMaterial(new THREE.MeshStandardMaterial({
       map: SailHeraldryService.getSailTexture(faction, false),
       roughness: 0.92,
       side: THREE.DoubleSide,
-    }));
+    })));
     const cannonMat = this.getCachedMaterial('shared_cannon', () => new THREE.MeshStandardMaterial({
       color: 0x18181b,
       roughness: 0.35,
@@ -515,6 +537,17 @@ export class ShipVisualService {
       portLidMat,
       flagMat,
     };
+  }
+
+  public static updateSailMaterials(time: number, globalSailSetting: number) {
+    this.materialCache.forEach((mat, key) => {
+      if (key.includes('_mainSail') || key.includes('_topSail')) {
+        if (mat.userData.shader) {
+          mat.userData.shader.uniforms.uTime.value = time;
+          mat.userData.shader.uniforms.uSailSetting.value = globalSailSetting;
+        }
+      }
+    });
   }
 
   /**
@@ -1418,37 +1451,85 @@ export class ShipVisualService {
   /**
    * Master Ship Factory: Assembles a complete 4-tier Hierarchical LOD Ship Group
    */
+  private static gltfLoader = new GLTFLoader();
+
   public static createShipMesh(spec: ShipSpec, isPirate = false, factionOverride?: FactionId): THREE.Group {
     const root = new THREE.Group();
     root.name = `ship-${spec.id}`;
 
     const faction: FactionId = isPirate ? 'pirates' : (factionOverride || (spec.livery.flag === 0xd97706 ? 'spain' : 'sovereign'));
 
-    const lod0 = this.createShipMeshLOD0(spec, isPirate, faction);
-    const lod1 = this.createShipMeshLOD1(spec, isPirate, faction);
-    const lod2 = this.createShipMeshLOD2(spec, isPirate, faction);
-    const lod3 = this.createShipMeshLOD3(spec, isPirate, faction);
+    const size = spec.rank <= 3 ? 'heavy' : spec.rank <= 5 ? 'medium' : 'light';
+    const modelName = `ship-${size}`;
+    const url = `/assets/models/${modelName}.glb`;
 
-    lod0.visible = true;
-    lod1.visible = false;
-    lod2.visible = false;
-    lod3.visible = false;
+    this.gltfLoader.load(url, (gltf) => {
+      const model = gltf.scene;
 
-    root.add(lod0);
-    root.add(lod1);
-    root.add(lod2);
-    root.add(lod3);
+      model.traverse((child: any) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          
+          if (child.material) {
+             const mat = new THREE.MeshLambertMaterial({
+               color: child.material.color,
+               map: child.material.map,
+             });
+             child.material = mat;
+
+             const name = child.name.toLowerCase();
+             if (name.includes('sail')) {
+               mat.onBeforeCompile = (shader) => {
+                 shader.uniforms.uTime = { value: 0 };
+                 shader.uniforms.uSailSetting = { value: 1.0 };
+                 mat.userData.shader = shader;
+                 shader.vertexShader = shader.vertexShader.replace(
+                   '#include <common>',
+                   '#include <common>\nuniform float uTime;\nuniform float uSailSetting;'
+                 );
+                 shader.vertexShader = shader.vertexShader.replace(
+                   '#include <begin_vertex>',
+                   [
+                     '#include <begin_vertex>',
+                     'transformed += normal * (sin(uTime * 2.0 + position.y * 1.5) * 0.12 * uSailSetting);'
+                   ].join('\n')
+                 );
+               };
+               child.userData.isSail = true;
+             }
+          }
+
+          const name = child.name.toLowerCase();
+          if (name.includes('hull')) {
+            VoyageReflectionManager.tagProminentReflective(child);
+          } else if (name.includes('cannon') || name.includes('barrel')) {
+            VoyageReflectionManager.tagMicroDetail(child);
+          }
+        }
+      });
+
+      // Match -Z forward convention
+      model.rotation.y = Math.PI;
+      root.add(model);
+    }, undefined, (error) => {
+      console.warn(`Failed to load ${url}, falling back to procedural ship.`, error);
+      const fallbackLOD0 = this.createShipMeshLOD0(spec, isPirate, faction);
+      root.add(fallbackLOD0);
+      root.userData.lodLevels = [fallbackLOD0, fallbackLOD0, fallbackLOD0, fallbackLOD0];
+      root.userData.sailsNode = fallbackLOD0.userData?.sailsNode || fallbackLOD0;
+    });
 
     root.userData = {
       spec,
       isPirate,
       faction,
       currentLOD: 0,
-      lodLevels: [lod0, lod1, lod2, lod3],
-      sailsNode: lod0.userData?.sailsNode || lod0,
-      flagNode: lod0.userData?.flagNode,
-      pennantNode: lod0.userData?.pennantNode,
-      oarsNodes: lod0.userData?.oarsNodes || [],
+      lodLevels: [root, root, root, root],
+      sailsNode: root,
+      flagNode: undefined,
+      pennantNode: undefined,
+      oarsNodes: []
     };
 
     return root;
@@ -1895,22 +1976,63 @@ export class ShipVisualService {
   /**
    * Generates a realistic wake foam mesh trailing behind the ship with soft alpha blending
    */
-  public static createWakeMesh(length: number, beam: number): THREE.Mesh {
-    const wakeGeo = new THREE.PlaneGeometry(beam * 1.5, length * 1.8, 8, 8);
-    wakeGeo.rotateX(-Math.PI * 0.5);
-
+  public static createWakeMesh(length: number, beam: number): THREE.Object3D {
+    const group = new THREE.Group();
+    group.name = 'wakeGroup';
     const tex = this.getSharedWakeTexture();
-    const wakeMat = new THREE.MeshBasicMaterial({
+
+    // 1. Stern Trail (trailing quad plane with vertex colors for alpha fade)
+    const sternGeo = new THREE.PlaneGeometry(beam * 1.5, length * 1.8, 1, 4);
+    sternGeo.rotateX(-Math.PI * 0.5);
+    
+    // Add vertex colors (white at top, transparent at bottom)
+    const colors = [];
+    const count = sternGeo.attributes.position.count;
+    for (let i = 0; i < count; i++) {
+      const z = sternGeo.attributes.position.getZ(i);
+      // z ranges from -length*0.9 to length*0.9 (since length * 1.8 is the size)
+      // We want alpha to be 1 at the front (-length * 0.9) and 0 at the back (length * 0.9)
+      const alpha = 1.0 - Math.min(1.0, Math.max(0.0, (z + length * 0.9) / (length * 1.8)));
+      colors.push(1, 1, 1, alpha);
+    }
+    sternGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 4));
+
+    const sternMat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       map: tex || undefined,
       transparent: true,
-      opacity: 0.65,
+      vertexColors: true,
       blending: THREE.NormalBlending,
       depthWrite: false,
     });
 
-    const wake = new THREE.Mesh(wakeGeo, wakeMat);
-    wake.position.set(0, 0.05, -length * 0.7);
-    return wake;
+    const stern = new THREE.Mesh(sternGeo, sternMat);
+    stern.position.set(0, 0.05, -length * 0.7);
+    group.add(stern);
+
+    // 2. Bow Splashes (Triangular ribbon meshes)
+    const bowGeo = new THREE.PlaneGeometry(beam * 0.8, length * 0.5, 1, 1);
+    bowGeo.rotateX(-Math.PI * 0.5);
+    const bowMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: tex || undefined,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.NormalBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+
+    const bowPort = new THREE.Mesh(bowGeo, bowMat);
+    bowPort.position.set(beam * 0.6, 0.06, length * 0.4);
+    bowPort.rotation.y = -0.3;
+    group.add(bowPort);
+
+    const bowStarboard = new THREE.Mesh(bowGeo, bowMat);
+    bowStarboard.position.set(-beam * 0.6, 0.06, length * 0.4);
+    bowStarboard.rotation.y = 0.3;
+    group.add(bowStarboard);
+
+    return group;
   }
 }

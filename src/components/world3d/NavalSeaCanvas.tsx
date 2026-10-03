@@ -106,6 +106,7 @@ interface EnemyShip {
   hullMax: number;
   sails: number;
   sailsMax: number;
+  crew: number;
   pos: THREE.Vector3;
   heading: number; // radians
   speed: number;
@@ -113,7 +114,7 @@ interface EnemyShip {
   reloadTimer: number;
   isSinking: boolean;
   sinkTimer: number;
-  wake: THREE.Mesh;
+  wake: THREE.Object3D;
 }
 
 export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
@@ -209,11 +210,12 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
     let animId: number;
     let isDisposed = false;
+    const visualEffects: any[] = [];
 
     // 1. Scene & Renderer
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x38bdf8); // Radiant Caribbean sky blue
-    scene.fog = new THREE.Fog(0x38bdf8, 500, 3500); // Crisp foreground water, soft distant horizon
+    scene.background = new THREE.Color(0x89b0d6);
+    scene.fog = new THREE.FogExp2(0x89b0d6, 0.0018);
 
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
@@ -247,6 +249,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         powerPreference: 'high-performance',
       });
       renderer.setSize(width, height);
+      renderer.setClearColor(0x89b0d6, 1.0);
       // Cap pixel ratio to 1.0 on mobile to prevent GPU fillrate choking; 1.5 max on desktop
       const safePixelRatio = isMobileDevice ? 1.0 : Math.min(window.devicePixelRatio, qSettings.pixelRatioCap || 1.5);
       renderer.setPixelRatio(safePixelRatio);
@@ -276,10 +279,19 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     const dom = renderer.domElement;
     dom.style.cursor = 'grab';
 
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let pointerDownTime = 0;
+    let pointerDownX = 0;
+    let pointerDownY = 0;
+
     const onPointerDown = (e: PointerEvent) => {
       isDragging = true;
       lastPointerX = e.clientX;
       lastPointerY = e.clientY;
+      pointerDownX = e.clientX;
+      pointerDownY = e.clientY;
+      pointerDownTime = performance.now();
       dom.style.cursor = 'grabbing';
     };
 
@@ -293,9 +305,48 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       camOrbitPitch = Math.max(0.06, Math.min(Math.PI * 0.44, camOrbitPitch + dy * 0.004));
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (e: PointerEvent) => {
       isDragging = false;
       dom.style.cursor = 'grab';
+
+      if (Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY) < 5 && performance.now() - pointerDownTime < 400) {
+        mouse.x = (e.clientX / width) * 2 - 1;
+        mouse.y = -(e.clientY / height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+
+        let closestHit: any = null;
+        let minHitDist = Infinity;
+
+        // Check local enemies
+        enemySpecs.forEach(enemy => {
+           if (!enemy.isSinking && enemy.mesh.visible) {
+             const intersects = raycaster.intersectObject(enemy.mesh, true);
+             if (intersects.length > 0 && intersects[0].distance < minHitDist) {
+               minHitDist = intersects[0].distance;
+               closestHit = { id: enemy.id, name: enemy.name, hull: enemy.hull, hullMax: enemy.hullMax, distance: 0, crew: enemy.spec?.crewMax || 50, rank: enemy.spec?.rank || 3 };
+             }
+           }
+        });
+
+        // Check MMO entities
+        if (networkClient) {
+           networkClient.getRemoteEntities().forEach((remote, id) => {
+              if (remote.group.visible) {
+                 const intersects = raycaster.intersectObject(remote.group, true);
+                 if (intersects.length > 0 && intersects[0].distance < minHitDist) {
+                    minHitDist = intersects[0].distance;
+                    closestHit = { id: id, name: remote.name, hull: 100, hullMax: 100, distance: 0, crew: 50, rank: 3 };
+                 }
+              }
+           });
+        }
+
+        if (closestHit) {
+           statusRef.current.targetEnemy = closestHit;
+        } else {
+           statusRef.current.targetEnemy = null;
+        }
+      }
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -315,11 +366,11 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     const ambientLight = new THREE.AmbientLight(0xbae6fd, 0.95);
     scene.add(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0x38bdf8, 0x0284c7, 0.6);
+    const hemiLight = new THREE.HemisphereLight(0xbadbf7, 0x1f3442, 0.75);
     scene.add(hemiLight);
 
-    const sun = new THREE.DirectionalLight(0xfffbeb, 2.0);
-    sun.position.set(300, 400, 200);
+    const sun = new THREE.DirectionalLight(0xfff4d6, 1.4);
+    sun.position.set(120, 80, -100).normalize();
     sun.castShadow = true;
     sun.shadow.mapSize.width = 1024;
     sun.shadow.mapSize.height = 1024;
@@ -344,9 +395,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     // shallow_color: vec3(0.05, 0.32, 0.42) -> 0x0d526b
     // foam_color: vec3(0.92, 0.96, 1.0) -> 0xebf5ff
     const waterSunColor = timeOfDay === 'night' ? 0x93c5fd : timeOfDay === 'sunset' ? 0xf97316 : 0xfffbeb;
-    const waterDeepColor = timeOfDay === 'night' ? 0x010b14 : timeOfDay === 'sunset' ? 0x081f30 : 0x03273e;
-    const waterShallowColor = timeOfDay === 'night' ? 0x041c30 : timeOfDay === 'sunset' ? 0x143c52 : 0x0d526b;
-    const waterSkyColor = timeOfDay === 'night' ? 0x1e3a8a : timeOfDay === 'sunset' ? 0xf97316 : 0x38bdf8;
+    const waterDeepColor = timeOfDay === 'night' ? 0x010b14 : timeOfDay === 'sunset' ? 0x081f30 : 0x0a223a;
+    const waterShallowColor = timeOfDay === 'night' ? 0x041c30 : timeOfDay === 'sunset' ? 0x143c52 : 0x1b5a7a;
+    const waterSkyColor = timeOfDay === 'night' ? 0x1e3a8a : timeOfDay === 'sunset' ? 0xf97316 : 0x4a82b5;
 
     // Phase 3: Single-Pass Specular Water Material with dual counter-scrolling normal maps
     const singlePassWaterMaterial = new SinglePassOceanMaterial({
@@ -514,6 +565,44 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
     const playerWake = ShipVisualService.createWakeMesh(playerSpec.length, playerSpec.beam);
     playerMesh.add(playerWake);
+
+    const broadsideRadius = playerSpec.cannonRange || 120;
+    
+    const portArcGeo = new THREE.CircleGeometry(broadsideRadius, 32, -Math.PI * 0.75, Math.PI * 0.5);
+    const stbdArcGeo = new THREE.CircleGeometry(broadsideRadius, 32, Math.PI * 0.25, Math.PI * 0.5);
+    
+    const arcMaterial = new THREE.MeshBasicMaterial({
+      color: 0x06b6d4, // Cyan by default
+      transparent: true,
+      opacity: 0.20,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    });
+    
+    const portArc = new THREE.Mesh(portArcGeo, arcMaterial.clone());
+    portArc.rotation.x = -Math.PI * 0.5;
+    const stbdArc = new THREE.Mesh(stbdArcGeo, arcMaterial.clone());
+    stbdArc.rotation.x = -Math.PI * 0.5;
+
+    const arcGroup = new THREE.Group();
+    arcGroup.add(portArc);
+    arcGroup.add(stbdArc);
+    scene.add(arcGroup);
+
+    const targetRingGeo = new THREE.RingGeometry((playerSpec.beam || 12) * 1.3, (playerSpec.beam || 12) * 1.3 + 2, 32);
+    const targetRingMat = new THREE.MeshBasicMaterial({
+      color: 0xef4444,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    });
+    const targetRing = new THREE.Mesh(targetRingGeo, targetRingMat);
+    targetRing.rotation.x = -Math.PI * 0.5;
+    targetRing.visible = false;
+    scene.add(targetRing);
 
     const safeHull = (persistentPlayerHullRef.current !== null && persistentPlayerHullRef.current > 0)
       ? persistentPlayerHullRef.current
@@ -944,8 +1033,8 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
       // Sacred Pirate Truce Sanctuary check (The Brethren's Vault at [-380, 220])
       const cavePos = new THREE.Vector3(-380, 0, 220);
-      if (playerState.pos.distanceTo(cavePos) < 95) {
-        statusRef.current.combatLog.unshift('⚔️ Sanctuary of Truce: Weapons held under the sacred Pirate Code!');
+      if (playerState.pos.distanceTo(cavePos) < 165) {
+        statusRef.current.combatLog.unshift('⚓ Truce Active: Black Market sanctuary entered.');
         soundEngine.playShipCreak();
         return;
       }
@@ -955,7 +1044,39 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       if (!isPort && playerState.starboardReload < 1.0) return;
 
       // Phase 2.9: Server-Authoritative Firing Intent
-      networkClient?.sendFireRequest(side);
+      let targetEntityId = statusRef.current.targetEnemy?.id;
+      let focusDir: THREE.Vector3 | null = null;
+      
+      if (statusRef.current.targetEnemy && statusRef.current.targetEnemy.distance <= (playerSpec.cannonRange || 120)) {
+         let targetPos = new THREE.Vector3();
+         const localEnemy = enemyById.get(statusRef.current.targetEnemy.id);
+         if (localEnemy) targetPos.copy(localEnemy.pos);
+         else if (networkClient) {
+            const remote = networkClient.getRemoteEntities().get(statusRef.current.targetEnemy.id);
+            if (remote) targetPos.copy(remote.group.position);
+         }
+         
+         const dx = targetPos.x - playerState.pos.x;
+         const dz = targetPos.z - playerState.pos.z;
+         let relAngle = Math.atan2(dx, dz) - playerState.heading;
+         while (relAngle <= -Math.PI) relAngle += Math.PI * 2;
+         while (relAngle > Math.PI) relAngle -= Math.PI * 2;
+
+         const inArc = isPort ? (relAngle >= -Math.PI * 0.75 && relAngle <= -Math.PI * 0.25) : (relAngle >= Math.PI * 0.25 && relAngle <= Math.PI * 0.75);
+
+         if (inArc) {
+            focusDir = new THREE.Vector3(dx, 0, dz).normalize();
+         } else {
+            targetEntityId = undefined; // Don't focus if not in arc
+         }
+      }
+
+      // @ts-ignore
+      networkClient?.sendFireRequest(side, targetEntityId);
+
+      // Recoil & Camera Impulse
+      camOrbitPitch += -0.015;
+      playerState.rollAngle += isPort ? 0.04 : -0.04;
 
       // Reset reload
       if (isPort) playerState.portReload = 0.0;
@@ -991,7 +1112,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
       // Perpendicular vector for broadside
       const broadsideAngle = playerState.heading + sideSign * (Math.PI * 0.5);
-      const dir = new THREE.Vector3(Math.sin(broadsideAngle), 0, Math.cos(broadsideAngle)).normalize();
+      const dir = focusDir || new THREE.Vector3(Math.sin(broadsideAngle), 0, Math.cos(broadsideAngle)).normalize();
 
       for (let i = 0; i < numGuns; i++) {
         const offsetDist = (i - numGuns * 0.5) * 2.2;
@@ -1049,8 +1170,10 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     let lastClosestIsland: { id: string; name: string } | null = null;
     let lastNearestEnemy: EnemyShip | null = null;
     let lastMinDist = Infinity;
+    let isBoardingActive = false;
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isBoardingActive) return;
       keysDown.add(e.code);
 
       if (e.code === 'KeyQ') fireBroadside('port');
@@ -1059,18 +1182,62 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       if (e.code === 'Digit2') playerState.sailSetting = 0.5;
       if (e.code === 'Digit3') playerState.sailSetting = 1.0;
 
+      if (e.code === 'Digit4') {
+        currentAmmoRef.current = 'balls';
+        statusRef.current.combatLog.unshift(`Swapped to Round Shot.`);
+      }
+      if (e.code === 'Digit5') {
+        currentAmmoRef.current = 'knippels';
+        statusRef.current.combatLog.unshift(`Swapped to Chain Shot (Knippels).`);
+      }
+      if (e.code === 'Digit6') {
+        currentAmmoRef.current = 'grapeshot';
+        statusRef.current.combatLog.unshift(`Swapped to Grapeshot (Anti-Crew).`);
+      }
+      if (e.code === 'Digit7') {
+        currentAmmoRef.current = 'bombs';
+        statusRef.current.combatLog.unshift(`Swapped to Explosive Shells.`);
+      }
+
       if (e.code === 'KeyB') {
-        if (lastNearestEnemy && lastMinDist < 48 && !lastNearestEnemy.isSinking) {
-          if (onBoardEnemyRef.current) {
-            onBoardEnemyRef.current({
-              id: lastNearestEnemy.id,
-              name: lastNearestEnemy.name,
-              hull: Math.round(lastNearestEnemy.hull),
-              hullMax: lastNearestEnemy.hullMax,
-              crew: Math.round(lastNearestEnemy.spec.crewMax * (lastNearestEnemy.hull / lastNearestEnemy.hullMax)),
-              rank: lastNearestEnemy.spec.rank,
-            });
+        if (statusRef.current.canBoard && statusRef.current.targetEnemy) {
+          const enemy = enemyById.get(statusRef.current.targetEnemy.id);
+          if (enemy) {
+            for (let i=0; i<3; i++) {
+              const pts = [playerState.pos.clone().add(new THREE.Vector3(0, 5, i*4 - 4)), enemy.pos.clone().add(new THREE.Vector3(0, 5, i*4 - 4))];
+              const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+              const lineMat = new THREE.LineBasicMaterial({ color: 0x8b5a2b, linewidth: 2 });
+              const line = new THREE.Line(lineGeo, lineMat);
+              scene.add(line);
+              visualEffects.push({ mesh: line, life: 0, maxLife: 2.0, velocity: new THREE.Vector3() });
+            }
+            playerState.speedKnots = 0;
+            enemy.speed = 0;
+            isBoardingActive = true;
+            statusRef.current.combatLog.unshift(`⚓ Grappling hooks thrown! Prepare to board the enemy deck!`);
+            if (onBoardEnemyRef.current) {
+              onBoardEnemyRef.current({
+                id: enemy.id,
+                name: enemy.name,
+                hull: Math.round(enemy.hull),
+                hullMax: enemy.hullMax,
+                crew: Math.round(enemy.crew),
+                rank: enemy.spec.rank,
+              });
+            }
           }
+        } else if (lastNearestEnemy && lastMinDist < 48 && !lastNearestEnemy.isSinking) {
+           if (onBoardEnemyRef.current) {
+             onBoardEnemyRef.current({
+               id: lastNearestEnemy.id,
+               name: lastNearestEnemy.name,
+               hull: Math.round(lastNearestEnemy.hull),
+               hullMax: lastNearestEnemy.hullMax,
+               crew: Math.round(lastNearestEnemy.crew),
+               rank: lastNearestEnemy.spec.rank,
+             });
+             isBoardingActive = true;
+           }
         }
       }
 
@@ -1091,8 +1258,37 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       keysDown.delete(e.code);
     };
 
+    const handleBoardingResolved = (e: Event) => {
+      const ce = e as CustomEvent;
+      const { targetId, sink } = ce.detail;
+      const enemy = enemyById.get(targetId);
+      if (enemy) {
+         if (sink) {
+            enemy.hull = 0;
+            enemy.isSinking = true;
+            statusRef.current.combatLog.unshift(`The captured vessel ${enemy.name} is sinking!`);
+         } else {
+            statusRef.current.combatLog.unshift(`We cut the lines and disengaged from ${enemy.name}!`);
+         }
+         if (!enemy.mesh.userData) enemy.mesh.userData = {};
+         enemy.mesh.userData.boardingImmunity = 5.0;
+      }
+      statusRef.current.targetEnemy = null;
+      isBoardingActive = false;
+      
+      for (let i = visualEffects.length - 1; i >= 0; i--) {
+         if (visualEffects[i].mesh instanceof THREE.Line) {
+            scene.remove(visualEffects[i].mesh);
+            if (visualEffects[i].mesh.geometry) visualEffects[i].mesh.geometry.dispose();
+            if (visualEffects[i].mesh.material) (visualEffects[i].mesh.material as THREE.Material).dispose();
+            visualEffects.splice(i, 1);
+         }
+      }
+    };
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('voyage_boarding_resolved', handleBoardingResolved);
 
     // Pre-allocated scratch objects to eliminate per-frame GC allocations
     const _projScreenMatrix = new THREE.Matrix4();
@@ -1147,6 +1343,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
     let lastSentRudder = 0;
     let lastSentSailDelta = 0;
     let lastSentCommandTimestamp = 0;
+    let wasInTruce = false;
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
@@ -1166,12 +1363,15 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       if (playerState.hull > 0) {
         // 1. Gather player input intents
         let rudderTarget = 0;
-        if (keysDown.has('KeyA') || keysDown.has('ArrowLeft')) rudderTarget = 1;
-        if (keysDown.has('KeyD') || keysDown.has('ArrowRight')) rudderTarget = -1;
-
         let sailAdjustDelta = 0;
-        if (keysDown.has('KeyW') || keysDown.has('ArrowUp')) sailAdjustDelta += dt * 0.5;
-        if (keysDown.has('KeyS') || keysDown.has('ArrowDown')) sailAdjustDelta -= dt * 0.5;
+        if (!isBoardingActive) {
+          if (keysDown.has('KeyA') || keysDown.has('ArrowLeft')) rudderTarget = 1;
+          if (keysDown.has('KeyD') || keysDown.has('ArrowRight')) rudderTarget = -1;
+          if (keysDown.has('KeyW') || keysDown.has('ArrowUp')) sailAdjustDelta += dt * 0.5;
+          if (keysDown.has('KeyS') || keysDown.has('ArrowDown')) sailAdjustDelta -= dt * 0.5;
+        } else {
+          playerState.speedKnots = 0;
+        }
 
         let renderState: ShipRenderState;
         let outboundCommands: any[] = [];
@@ -1222,13 +1422,17 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           playerState.pos.z += Math.cos(playerState.heading) * vel;
           playerState.pos.y = getWaveHeight(playerState.pos.x, playerState.pos.z, globalTime);
 
+          // Ride wave swell (pitch) and heel into turns (roll) based on rudder
+          const wavePitch = Math.sin(globalTime * 1.5) * 0.05 * (playerState.speedKnots / Math.max(1, playerSpec.baseSpeed));
+          const heelRoll = -playerState.rudder * 0.15 * (playerState.speedKnots / Math.max(1, playerSpec.baseSpeed));
+
           renderState = {
             x: playerState.pos.x,
             y: playerState.pos.y,
             z: playerState.pos.z,
-            pitch: 0,
+            pitch: wavePitch,
             heading: playerState.heading,
-            roll: -playerState.rudder * 0.1,
+            roll: heelRoll,
             speedKnots: playerState.speedKnots,
             rudder: playerState.rudder,
             sailSetting: playerState.sailSetting,
@@ -1343,9 +1547,77 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         persistentPlayerSailsRef.current = playerState.sails;
         persistentPlayerCrewRef.current = playerState.crew;
 
+        // Recoil decay
+        playerState.rollAngle = THREE.MathUtils.lerp(playerState.rollAngle, 0, dt * 2.5);
+
         // Reload recharge
-        playerState.portReload = Math.min(1.0, playerState.portReload + dt * 0.25);
-        playerState.starboardReload = Math.min(1.0, playerState.starboardReload + dt * 0.25);
+        if (!isBoardingActive) {
+           playerState.portReload = Math.min(1.0, playerState.portReload + dt * 0.25);
+           playerState.starboardReload = Math.min(1.0, playerState.starboardReload + dt * 0.25);
+        }
+
+        // Arc and Target updates
+        arcGroup.position.set(playerState.pos.x, 0.08, playerState.pos.z);
+        arcGroup.rotation.y = playerState.heading;
+
+        let targetInPort = false;
+        let targetInStbd = false;
+
+        if (statusRef.current.targetEnemy) {
+           let targetPos = new THREE.Vector3();
+           let isPirate = false;
+           
+           const localEnemy = enemyById.get(statusRef.current.targetEnemy.id);
+           if (localEnemy) {
+              targetPos.copy(localEnemy.pos);
+              isPirate = localEnemy.faction === 'pirates';
+           } else if (networkClient) {
+              const remote = networkClient.getRemoteEntities().get(statusRef.current.targetEnemy.id);
+              if (remote) {
+                 targetPos.copy(remote.group.position);
+                 isPirate = remote.faction === 'pirates';
+              }
+           }
+           
+           targetRing.position.set(targetPos.x, 0.12, targetPos.z);
+           targetRing.scale.setScalar(1.0 + Math.sin(globalTime * 6.0) * 0.08);
+           (targetRing.material as THREE.MeshBasicMaterial).color.setHex(isPirate ? 0xef4444 : 0xeab308);
+           targetRing.visible = true;
+           
+           statusRef.current.targetEnemy.distance = playerState.pos.distanceTo(targetPos);
+
+           if (statusRef.current.targetEnemy.distance <= (playerSpec.cannonRange || 120)) {
+              const dx = targetPos.x - playerState.pos.x;
+              const dz = targetPos.z - playerState.pos.z;
+              let relAngle = Math.atan2(dx, dz) - playerState.heading;
+              while (relAngle <= -Math.PI) relAngle += Math.PI * 2;
+              while (relAngle > Math.PI) relAngle -= Math.PI * 2;
+
+              if (relAngle >= -Math.PI * 0.75 && relAngle <= -Math.PI * 0.25) {
+                 targetInPort = true;
+              } else if (relAngle >= Math.PI * 0.25 && relAngle <= Math.PI * 0.75) {
+                 targetInStbd = true;
+              }
+           }
+        } else {
+           targetRing.visible = false;
+        }
+
+        if (playerState.portReload < 1.0) {
+           (portArc.material as THREE.MeshBasicMaterial).color.setHex(0xf59e0b);
+        } else if (targetInPort) {
+           (portArc.material as THREE.MeshBasicMaterial).color.setHex(0x10b981);
+        } else {
+           (portArc.material as THREE.MeshBasicMaterial).color.setHex(0x06b6d4);
+        }
+
+        if (playerState.starboardReload < 1.0) {
+           (stbdArc.material as THREE.MeshBasicMaterial).color.setHex(0xf59e0b);
+        } else if (targetInStbd) {
+           (stbdArc.material as THREE.MeshBasicMaterial).color.setHex(0x10b981);
+        } else {
+           (stbdArc.material as THREE.MeshBasicMaterial).color.setHex(0x06b6d4);
+        }
       } else {
         // Player flagship hull defeated: smooth sinking presentation
         playerMesh.position.y -= dt * 1.2;
@@ -1396,7 +1668,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
       if (Number.isFinite(camTargetX) && Number.isFinite(camTargetY) && Number.isFinite(camTargetZ)) {
         _camTargetVec.set(camTargetX, camTargetY, camTargetZ);
-        camera.position.lerp(_camTargetVec, dt * 4.0);
+        camera.position.copy(_camTargetVec);
       }
 
       if (cameraPresetRef.current === 'bow') {
@@ -1506,6 +1778,9 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         });
       }
 
+      // Update Sail vertex animations (billowing)
+      ShipVisualService.updateSailMaterials(globalTime, playerState.sailSetting);
+
       // --- CIRCLING SEAGULLS ANIMATION (Culled beyond 320m) ---
       seagulls.forEach((g) => {
         const dCam = camera.position.distanceTo(g.center);
@@ -1527,18 +1802,21 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       _cameraFrustum.setFromProjectionMatrix(_projScreenMatrix);
 
       // Culling distant & off-screen island havens (saves hundreds of static draw calls)
-      islands.forEach((isl) => {
-        if (!isl.mesh) return;
-        const distToCam = camera.position.distanceTo(isl.pos);
-        if (distToCam > 1800) {
-          isl.mesh.visible = false;
-          return;
+      if (renderFrameCount % 10 === 0) {
+        for (let i = 0; i < islands.length; i++) {
+          const isl = islands[i];
+          if (!isl.mesh) continue;
+          const distToCam = camera.position.distanceTo(isl.pos);
+          if (distToCam > 1800) {
+            isl.mesh.visible = false;
+            continue;
+          }
+          _sphere.center.copy(isl.pos);
+          _sphere.radius = isl.radius;
+          const inView = distToCam < isl.radius + 80 || _cameraFrustum.intersectsSphere(_sphere);
+          isl.mesh.visible = inView;
         }
-        _sphere.center.copy(isl.pos);
-        _sphere.radius = isl.radius;
-        const inView = distToCam < isl.radius + 80 || _cameraFrustum.intersectsSphere(_sphere);
-        isl.mesh.visible = inView;
-      });
+      }
 
       // Player flagship locked to LOD0 (100% full visual fidelity, realistic PBR wood, heraldry, lanterns, rigging)
       ShipLODController.updateShipLOD(playerMesh, 0, true);
@@ -1547,6 +1825,10 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       let nearestEnemy: EnemyShip | null = null;
       let minDistance = Infinity;
       const isPlayerInTruce = playerState.pos.distanceTo(CAVE_SANCTUARY_POS) < 165;
+      if (isPlayerInTruce && !wasInTruce) {
+         statusRef.current.combatLog.unshift('⚓ Truce Active: Black Market sanctuary entered.');
+      }
+      wasInTruce = isPlayerInTruce;
 
       // Update full fleet simulation via time-sliced Simulation LOD & Spatial Grid
       fleetManager.updateFleetSimulation(
@@ -1618,9 +1900,37 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
         const distToCam = camera.position.distanceTo(enemy.pos);
 
-        // Wall 2: Disable wake trails on any ship further than 40 meters from camera
+        if (enemy.mesh.userData.fireTimer > 0) {
+           enemy.mesh.userData.fireTimer -= dt;
+           enemy.hull = Math.max(0, enemy.hull - 5.0 * dt);
+           if (Math.random() < 0.2 && distToCam <= 60) {
+              const smokePos = VoyageObjectPool.scratchVec1.copy(enemy.pos);
+              smokePos.y += 2.5;
+              const smokeVel = VoyageObjectPool.scratchVec2.set((Math.random() - 0.5)*2, 3, (Math.random() - 0.5)*2);
+              const smoke = VoyageObjectPool.acquireParticle(smokePos, smokeVel, 1.2, 1.5);
+              if (smoke) particles.push(smoke as unknown as Particle);
+           }
+        }
+
+        // Hull Hydrodynamic Motion
+        const timeNow = performance.now() * 0.001;
+        const speedRatio = Math.min(1.0, (enemy.speed ?? 0) / 12.0);
+        const entitySeed = enemy.pos.x + enemy.pos.z;
+        const rollSway = Math.sin(timeNow * 1.2 + entitySeed) * 0.035 * speedRatio;
+        const turnHeel = (enemy.turnSpeed ?? 0) * -1.5 * speedRatio; // Heeling based on turn speed
+        enemy.mesh.rotation.z = rollSway + turnHeel;
+        const pitchSway = Math.cos(timeNow * 1.5 + entitySeed) * 0.02 * speedRatio;
+        enemy.mesh.rotation.x = pitchSway;
+
+        // Wall 2: Disable wake trails on any ship further than 60 meters from camera
         if (enemy.wake) {
-          enemy.wake.visible = distToCam <= 40;
+          enemy.wake.visible = distToCam <= 60 && (enemy.speed ?? 0) > 0.5;
+          const wakeOpacity = Math.min(0.6, Math.max(0.1, (enemy.speed ?? 0) / 12.0) * 0.6);
+          enemy.wake.children.forEach(child => {
+             if ((child as THREE.Mesh).material) {
+                ((child as THREE.Mesh).material as THREE.Material).opacity = wakeOpacity;
+             }
+          });
         }
 
         // Wall 2: Planar reflection layer tagging
@@ -1663,7 +1973,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           enemy.mesh.userData.pennantNode.rotation.y = Math.PI * 0.5 + Math.sin(globalTime * 4.6 + enemy.pos.x) * 0.26;
         }
 
-        if (enemy.mesh.visible || useGpuInstancing) {
+        if ((enemy.mesh.visible || useGpuInstancing) && distToCam <= 120) {
           const uiPos = VoyageObjectPool.scratchVec1.copy(enemy.pos);
           uiPos.y += 18.0;
           uiManager.addNameplate(uiPos, enemy.name, enemy.faction === 'pirates', 3.0);
@@ -1677,6 +1987,20 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         for (const remote of networkClient.getRemoteEntities().values()) {
           const distToCam = camera.position.distanceTo(remote.group.position);
           const useGpuInstancing = distToCam > 40 && distToCam <= 400;
+
+          // Hull Hydrodynamic Motion for Remote Ships
+          const timeNow = performance.now() * 0.001;
+          const remoteSnap = remote.interpolator.getLatest();
+          const remoteSpeed = remoteSnap ? remoteSnap.speedKnots : 0;
+          const remoteRudder = remoteSnap ? remoteSnap.rudder : 0;
+          
+          const remoteSpeedRatio = Math.min(1.0, remoteSpeed / 12.0);
+          const remoteSeed = remote.group.position.x + remote.group.position.z;
+          const remoteRollSway = Math.sin(timeNow * 1.2 + remoteSeed) * 0.035 * remoteSpeedRatio;
+          const remoteTurnHeel = remoteRudder * -0.055 * remoteSpeedRatio;
+          remote.group.rotation.z = remoteRollSway + remoteTurnHeel;
+          const remotePitchSway = Math.cos(timeNow * 1.5 + remoteSeed) * 0.02 * remoteSpeedRatio;
+          remote.group.rotation.x = remotePitchSway;
 
           if (useGpuInstancing) {
             const spec = SHIP_CATALOG[remote.type] || SHIP_CATALOG.frigate;
@@ -1693,12 +2017,14 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
             remote.group.visible = true;
           }
 
-          const uiPos = VoyageObjectPool.scratchVec1.copy(remote.group.position);
-          uiPos.y += 18.0;
-          const isPirate = remote.faction === 'pirates';
-          uiManager.addNameplate(uiPos, remote.name, isPirate, 3.0);
-          uiPos.y -= 1.5;
-          uiManager.addHealthBar(uiPos, Math.max(0, remote.health / remote.maxHealth), 4.0, 0.4);
+          if (distToCam <= 120) {
+            const uiPos = VoyageObjectPool.scratchVec1.copy(remote.group.position);
+            uiPos.y += 18.0;
+            const isPirate = remote.faction === 'pirates';
+            uiManager.addNameplate(uiPos, remote.name, isPirate, 3.0);
+            uiPos.y -= 1.5;
+            uiManager.addHealthBar(uiPos, Math.max(0, remote.health / remote.maxHealth), 4.0, 0.4);
+          }
         }
       }
 
@@ -1735,6 +2061,96 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
 
         if (impact.isHit && impact.targetEntityId) {
           soundEngine.playCannonHit();
+          
+          let actualDamage = impact.damage;
+          let hullMult = 1.0;
+          let sailsMult = 0.0;
+          let crewMult = 0.0;
+          let isGrapeshot = false;
+          let isKnippels = false;
+          let isBombs = false;
+
+          if (impact.ammoType === 'knippels') {
+             hullMult = 0.15;
+             sailsMult = 0.8;
+             isKnippels = true;
+          } else if (impact.ammoType === 'grapeshot') {
+             hullMult = 0.10;
+             crewMult = 0.7;
+             isGrapeshot = true;
+          } else if (impact.ammoType === 'bombs') {
+             hullMult = 1.30;
+             isBombs = true;
+          }
+
+          if (distToCam <= 60) {
+            const splinterCount = isKnippels ? 2 : (isGrapeshot ? 8 : 6);
+            for (let i = 0; i < splinterCount; i++) {
+               let geo: THREE.BufferGeometry;
+               let mat: THREE.Material;
+               let isSplint = false;
+
+               if (isKnippels) {
+                  geo = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 4);
+                  mat = new THREE.MeshLambertMaterial({ color: 0x8b5a2b });
+               } else if (isGrapeshot) {
+                  geo = new THREE.SphereGeometry(0.08, 4, 4);
+                  mat = new THREE.MeshBasicMaterial({ color: 0x333333 });
+               } else {
+                  geo = new THREE.BoxGeometry(0.1, 0.1, 0.6);
+                  mat = new THREE.MeshLambertMaterial({ color: 0x5c4033 });
+                  isSplint = true;
+               }
+
+               const splinter = new THREE.Mesh(geo, mat);
+               splinter.position.copy(impact.impactPos);
+               scene.add(splinter);
+               visualEffects.push({
+                  mesh: splinter,
+                  life: 0,
+                  maxLife: 1.2,
+                  velocity: new THREE.Vector3((Math.random() - 0.5) * 12, 5 + Math.random() * 8, (Math.random() - 0.5) * 12),
+                  isSplinter: isSplint || isKnippels
+               });
+            }
+            
+            if (isGrapeshot) {
+               const smokeGeo = new THREE.PlaneGeometry(2, 2);
+               const smokeMat = new THREE.MeshBasicMaterial({ color: 0x880000, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+               const smoke = new THREE.Mesh(smokeGeo, smokeMat);
+               smoke.position.copy(impact.impactPos);
+               smoke.position.y += 1.0;
+               smoke.lookAt(camera.position);
+               scene.add(smoke);
+               visualEffects.push({ mesh: smoke, life: 0, maxLife: 0.4, velocity: new THREE.Vector3(), isFlash: true });
+            } else {
+               const flashGeo = new THREE.PlaneGeometry(3, 3);
+               const flashMat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending, depthWrite: false });
+               const flash = new THREE.Mesh(flashGeo, flashMat);
+               flash.position.copy(impact.impactPos);
+               flash.position.y += 1.0;
+               flash.lookAt(camera.position);
+               scene.add(flash);
+               visualEffects.push({ mesh: flash, life: 0, maxLife: 0.06, velocity: new THREE.Vector3(), isFlash: true });
+            }
+          }
+
+          let dmgText = `-${Math.round(actualDamage * hullMult)}`;
+          let dmgColor = '#ef4444';
+          if (isKnippels) {
+             dmgText = `-${Math.round(actualDamage * sailsMult)} SAILS`;
+             dmgColor = '#38bdf8';
+          } else if (isGrapeshot) {
+             dmgText = `-${Math.round(actualDamage * crewMult)} CREW`;
+          }
+
+          // @ts-ignore
+          if (uiManager.addFloatingText) {
+             const textPos = impact.impactPos.clone();
+             textPos.y += 3.0;
+             // @ts-ignore
+             uiManager.addFloatingText(textPos, dmgText, dmgColor);
+          }
 
           // Wall 2: Spawn splinter particles only within 40m of camera
           if (distToCam <= 40) {
@@ -1744,16 +2160,26 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           }
 
           if (impact.targetEntityId === 'player_flagship') {
-            playerState.hull = Math.max(0, playerState.hull - impact.damage);
-            statusRef.current.combatLog.unshift(`Incoming cannonball hit our hull! -${impact.damage} HP`);
+            playerState.hull = Math.max(0, playerState.hull - actualDamage * hullMult);
+            playerState.sails = Math.max(0, playerState.sails - actualDamage * sailsMult);
+            playerState.crew = Math.max(0, playerState.crew - actualDamage * crewMult);
+            statusRef.current.combatLog.unshift(`Incoming fire! ${dmgText}`);
             if (playerState.hull <= 0 && onDefeatRef.current) {
               onDefeatRef.current();
             }
           } else {
             const enemy = enemyById.get(impact.targetEntityId);
             if (enemy && !enemy.isSinking) {
-              enemy.hull = Math.max(0, enemy.hull - impact.damage);
-              statusRef.current.combatLog.unshift(`Direct hit on ${enemy.name}! -${impact.damage} HULL!`);
+              enemy.hull = Math.max(0, enemy.hull - actualDamage * hullMult);
+              enemy.sails = Math.max(0, enemy.sails - actualDamage * sailsMult);
+              enemy.crew = Math.max(0, enemy.crew - actualDamage * crewMult);
+              statusRef.current.combatLog.unshift(`Hit on ${enemy.name}! ${dmgText}`);
+              
+              if (isKnippels) enemy.speed = Math.max(0, enemy.speed * (enemy.sails / Math.max(1, enemy.sailsMax)));
+              if (isBombs && Math.random() < 0.5) {
+                 if (!enemy.mesh.userData) enemy.mesh.userData = {};
+                 enemy.mesh.userData.fireTimer = 4.0;
+              }
 
               if (enemy.hull <= 0) {
                 enemy.isSinking = true;
@@ -1771,6 +2197,21 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
         } else {
           // Water splash
           soundEngine.playWaterSplash();
+          if (distToCam <= 60) {
+             const geyserGeo = new THREE.CylinderGeometry(0.2, 1.8, 4.5, 6);
+             const geyserMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false });
+             const geyser = new THREE.Mesh(geyserGeo, geyserMat);
+             geyser.position.copy(impact.impactPos);
+             geyser.position.y += 2.25;
+             scene.add(geyser);
+             visualEffects.push({
+                mesh: geyser,
+                life: 0,
+                maxLife: 0.6,
+                velocity: new THREE.Vector3(0, 8.0 + Math.random() * 4.0, 0),
+                isGeyser: true
+             });
+          }
           if (distToCam <= 40) {
             const splashVel = VoyageObjectPool.scratchVec2.set(0, 3.5, 0);
             const splash = VoyageObjectPool.acquireParticle(impact.impactPos, splashVel, 0.6, 1.5);
@@ -1778,6 +2219,32 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
           }
         }
       });
+
+      // --- CUSTOM VISUAL EFFECTS UPDATE ---
+      for (let i = visualEffects.length - 1; i >= 0; i--) {
+         const fx = visualEffects[i];
+         fx.life += dt;
+         fx.mesh.position.addScaledVector(fx.velocity, dt);
+
+         if (fx.isGeyser) {
+            fx.velocity.y -= 25.0 * dt; // Gravity
+            const progress = fx.life / fx.maxLife;
+            (fx.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1.0 - progress);
+            const scale = 1.0 + progress * 0.5;
+            fx.mesh.scale.set(scale, 1.0 - progress * 0.2, scale);
+         } else if (fx.isSplinter) {
+            fx.velocity.y -= 15.0 * dt; // Gravity
+            fx.mesh.rotation.x += dt * 5;
+            fx.mesh.rotation.y += dt * 3;
+         }
+
+         if (fx.life >= fx.maxLife || (fx.mesh.position.y < 0 && !fx.isFlash)) {
+            scene.remove(fx.mesh);
+            if (fx.mesh.geometry) fx.mesh.geometry.dispose();
+            if (fx.mesh.material) fx.mesh.material.dispose();
+            visualEffects.splice(i, 1);
+         }
+      }
 
       // --- ZERO-ALLOCATION PARTICLES UPDATE ---
       for (let p = particles.length - 1; p >= 0; p--) {
@@ -1828,7 +2295,16 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       lastNearestEnemy = nearestEnemy as EnemyShip;
       lastMinDist = minDistance;
 
-      const canBoardNow = !!(nearestEnemy && minDistance < 48 && !(nearestEnemy as EnemyShip).isSinking);
+      let canBoardNow = false;
+      if (statusRef.current.targetEnemy) {
+         const t = enemyById.get(statusRef.current.targetEnemy.id);
+         if (t && !t.isSinking && (!t.mesh.userData.boardingImmunity || t.mesh.userData.boardingImmunity <= 0)) {
+            const d = playerState.pos.distanceTo(t.pos);
+            canBoardNow = d < 22 && (t.crew / t.spec.crewMax < 0.35 || t.sails / t.sailsMax < 0.20);
+         }
+      } else if (nearestEnemy && minDistance < 48 && !(nearestEnemy as EnemyShip).isSinking && (!(nearestEnemy as EnemyShip).mesh.userData.boardingImmunity || (nearestEnemy as EnemyShip).mesh.userData.boardingImmunity <= 0)) {
+         canBoardNow = true;
+      }
 
       // Dynamic naval music and harbor arrival bell transitions
       if (closestIsland && closestIsland.distance < 65) {
@@ -1856,6 +2332,12 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       // Status emission to React parent (throttled to 2 Hz / 500ms)
       logUpdateTimer += dt;
       if (logUpdateTimer >= 0.5) {
+        enemyById.forEach(enemy => {
+          if (enemy.mesh && enemy.mesh.userData && enemy.mesh.userData.boardingImmunity > 0) {
+            enemy.mesh.userData.boardingImmunity -= dt;
+          }
+        });
+
         logUpdateTimer = 0;
         statusRef.current = {
           ...statusRef.current,
@@ -1879,7 +2361,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
               hull: Math.round((nearestEnemy as EnemyShip).hull),
               hullMax: (nearestEnemy as EnemyShip).hullMax,
               distance: Math.round(minDistance),
-              crew: Math.round((nearestEnemy as EnemyShip).spec.crewMax * ((nearestEnemy as EnemyShip).hull / (nearestEnemy as EnemyShip).hullMax)),
+              crew: Math.round((nearestEnemy as EnemyShip).crew),
               rank: (nearestEnemy as EnemyShip).spec.rank,
             }
             : null,
@@ -2015,6 +2497,7 @@ export const NavalSeaCanvas: React.FC<NavalSeaCanvasProps> = ({
       cancelAnimationFrame(animId);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('voyage_boarding_resolved', handleBoardingResolved);
       window.removeEventListener('resize', onResize);
       dom.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
