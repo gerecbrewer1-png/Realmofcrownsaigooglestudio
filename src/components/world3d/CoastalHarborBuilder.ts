@@ -249,18 +249,26 @@ export class CoastalHarborBuilder {
       metalness: 0.7,
     });
     const cliffRockMat = new THREE.MeshStandardMaterial({
-      color: 0x475569,
-      roughness: 0.95,
+      color: 0x292524, // Dark granite slate sea cliff
+      roughness: 0.97,
+      metalness: 0.04,
+      flatShading: true,
+    });
+    const wetWaterlineMat = new THREE.MeshStandardMaterial({
+      color: 0x1c1917, // Wet basalt waterline band (y=-2 to y=2)
+      roughness: 0.85,
+      metalness: 0.18,
       flatShading: true,
     });
     const mountainSlateMat = new THREE.MeshStandardMaterial({
-      color: 0x334155, // Atmospheric blue-gray mountain slate (fades naturally into sky)
-      roughness: 0.95,
+      color: 0x292524, // Dark granite cliff face — stratified coastal rock
+      roughness: 0.96,
+      metalness: 0.04,
       flatShading: true,
     });
     const mountainPeakMat = new THREE.MeshStandardMaterial({
-      color: 0x475569, // Craggy granite ridge crest
-      roughness: 0.95,
+      color: 0x2d372e, // Alpine moss — high-altitude natural tones on granite
+      roughness: 0.94,
       flatShading: true,
     });
     const beachSandMat = new THREE.MeshStandardMaterial({
@@ -297,11 +305,19 @@ export class CoastalHarborBuilder {
     });
     harborGroup.add(mountainGroup);
 
-    // B. Coastal Stone Bluff Terrace (local Z = 70 to 140)
-    const bluffGeo = new THREE.BoxGeometry(320 * s, 35 * s, 75 * s);
+    // B. Coastal Stone Bluff Terrace — dark granite with wet waterline band
+    const bluffGeo = new THREE.CylinderGeometry(155 * s, 175 * s, 35 * s, 14);
     const bluff = new THREE.Mesh(bluffGeo, cliffRockMat);
     bluff.position.set(0, 16 * s, 105 * s);
+    bluff.scale.set(2.1, 1.0, 0.55);
     harborGroup.add(bluff);
+
+    // Wet waterline band along cliff base
+    const waterlineGeo = new THREE.CylinderGeometry(158 * s, 178 * s, 4 * s, 14);
+    const waterlineBand = new THREE.Mesh(waterlineGeo, wetWaterlineMat);
+    waterlineBand.position.set(0, 0 * s, 105 * s);
+    waterlineBand.scale.set(2.1, 1.0, 0.55);
+    harborGroup.add(waterlineBand);
 
     // C. Waterfront Stone Quay & Ramparts (local Z = 10 to 65)
     const quayGeo = new THREE.BoxGeometry(280 * s, 6 * s, 55 * s);
@@ -452,20 +468,28 @@ export class CoastalHarborBuilder {
     const s = config.scale || 1.35;
     const isPirate = config.faction === 'pirates';
 
-    // Materials
+    // Materials — Phase 3: Craggy granite cliffs with wet waterline bands
     const cliffRockMat = new THREE.MeshStandardMaterial({
-      color: isPirate ? 0x27272a : 0x57534e,
-      roughness: 0.92,
+      color: isPirate ? 0x1c1917 : 0x292524, // Dark granite slate sea cliff
+      roughness: 0.97,
+      metalness: 0.04,
+      flatShading: true,
+    });
+    const wetWaterlineMat = new THREE.MeshStandardMaterial({
+      color: 0x1c1917, // Wet basalt waterline band
+      roughness: 0.85,
+      metalness: 0.18,
       flatShading: true,
     });
     const mountainSlateMat = new THREE.MeshStandardMaterial({
-      color: isPirate ? 0x27272a : 0x334155,
-      roughness: 0.95,
+      color: isPirate ? 0x1c1917 : 0x292524, // Stratified coastal rock — dark granite
+      roughness: 0.96,
+      metalness: 0.04,
       flatShading: true,
     });
     const mountainPeakMat = new THREE.MeshStandardMaterial({
-      color: isPirate ? 0x18181b : 0x44403c,
-      roughness: 0.95,
+      color: isPirate ? 0x18181b : 0x2d372e, // Alpine moss tones on summit granite
+      roughness: 0.94,
       flatShading: true,
     });
     const palmLeafMat = new THREE.MeshStandardMaterial({
@@ -505,34 +529,66 @@ export class CoastalHarborBuilder {
       flatShading: true,
     });
 
-    // A. Massive Layered Mountain Ridge & Coastal Bluffs (Rising 70m-110m)
+    // A. Craggy Sea Cliff Geology — Phase 3: stratified dark granite with wet waterline bands
     // 1. Broad Sandy Shoreline Shelf (Base at sea level)
     const islandBaseGeo = new THREE.CylinderGeometry(85 * s, 110 * s, 5 * s, 18);
     const islandBase = new THREE.Mesh(islandBaseGeo, beachSandMat);
     islandBase.position.set(0, 1.8 * s, 20 * s);
     havenGroup.add(islandBase);
 
-    // 2. Terraced Rocky Coastal Bluffs
-    const bluff1Geo = new THREE.CylinderGeometry(60 * s, 80 * s, 14 * s, 14);
+    // 2. Wet basalt waterline band — y = -2 to y = 2
+    const waterlineBandGeo = new THREE.CylinderGeometry(82 * s, 112 * s, 4 * s, 16);
+    const waterlineBand = new THREE.Mesh(waterlineBandGeo, wetWaterlineMat);
+    waterlineBand.position.set(0, 0, 20 * s);
+    havenGroup.add(waterlineBand);
+
+    // 3. Stratified coastal rock bluffs — multi-layer jagged faces
+    const bluff1Geo = new THREE.CylinderGeometry(58 * s, 78 * s, 18 * s, 12);
     const bluff1 = new THREE.Mesh(bluff1Geo, cliffRockMat);
     bluff1.position.set(0, 8 * s, 32 * s);
+    bluff1.rotation.y = 0.4;
     havenGroup.add(bluff1);
 
-    // 3. Natural Island Mountain Peaks Backdrop
-    const mainPeakGeo = new THREE.CylinderGeometry(18 * s, 58 * s, 95 * s, 8);
+    const bluff2Geo = new THREE.CylinderGeometry(48 * s, 62 * s, 22 * s, 10);
+    const bluff2 = new THREE.Mesh(bluff2Geo, cliffRockMat);
+    bluff2.position.set(8 * s, 20 * s, 36 * s);
+    bluff2.rotation.y = 1.1;
+    havenGroup.add(bluff2);
+
+    // 4. Craggy Mountain Peaks — granite slate with alpine moss summit caps
+    const mainPeakGeo = new THREE.CylinderGeometry(16 * s, 56 * s, 95 * s, 9);
     const mainPeak = new THREE.Mesh(mainPeakGeo, mountainSlateMat);
     mainPeak.position.set(0, 48 * s, 36 * s);
+    mainPeak.rotation.y = 0.7;
     havenGroup.add(mainPeak);
 
-    const leftPeakGeo = new THREE.CylinderGeometry(12 * s, 44 * s, 68 * s, 8);
-    const leftPeak = new THREE.Mesh(leftPeakGeo, mountainPeakMat);
+    // Alpine moss summit cap
+    const mainCapGeo = new THREE.CylinderGeometry(8 * s, 18 * s, 18 * s, 8);
+    const mainCap = new THREE.Mesh(mainCapGeo, mountainPeakMat);
+    mainCap.position.set(0, 90 * s, 36 * s);
+    havenGroup.add(mainCap);
+
+    const leftPeakGeo = new THREE.CylinderGeometry(10 * s, 42 * s, 68 * s, 8);
+    const leftPeak = new THREE.Mesh(leftPeakGeo, mountainSlateMat);
     leftPeak.position.set(-52 * s, 38 * s, 42 * s);
+    leftPeak.rotation.y = 1.3;
     havenGroup.add(leftPeak);
 
-    const rightPeakGeo = new THREE.CylinderGeometry(14 * s, 46 * s, 72 * s, 8);
-    const rightPeak = new THREE.Mesh(rightPeakGeo, mountainPeakMat);
+    const leftCapGeo = new THREE.CylinderGeometry(5 * s, 12 * s, 14 * s, 7);
+    const leftCap = new THREE.Mesh(leftCapGeo, mountainPeakMat);
+    leftCap.position.set(-52 * s, 68 * s, 42 * s);
+    havenGroup.add(leftCap);
+
+    const rightPeakGeo = new THREE.CylinderGeometry(12 * s, 44 * s, 72 * s, 8);
+    const rightPeak = new THREE.Mesh(rightPeakGeo, mountainSlateMat);
     rightPeak.position.set(52 * s, 40 * s, 42 * s);
+    rightPeak.rotation.y = 0.5;
     havenGroup.add(rightPeak);
+
+    const rightCapGeo = new THREE.CylinderGeometry(6 * s, 13 * s, 16 * s, 7);
+    const rightCap = new THREE.Mesh(rightCapGeo, mountainPeakMat);
+    rightCap.position.set(52 * s, 72 * s, 42 * s);
+    havenGroup.add(rightCap);
 
     // B. Lush Palm Tree Groves along slopes and beaches
     const palmPositions = [
@@ -616,42 +672,49 @@ export class CoastalHarborBuilder {
   }
 
   /**
-   * 3. The Brethren's Vault - Massive Volcanic Pirate Sea Cavern & Black Market
-   * Truly massive scale directly matching user reference images:
-   * - Giant volcanic basalt mountain massif (260m wide, 140m tall)
-   * - Monumental vaulted sea cavern portal arch (130m wide, 52m vertical clearance)
-   *   allowing 50m Dragon Junks & Galleons with tall masts to sail directly into the grotto
-   * - Colossal 40m carved stone skull totem pillars with glowing ruby/emerald eyes and burning braziers
-   * - Deep-water subterranean lagoon with grounded Spanish galleon shipwreck
-   * - Glittering golden doubloon heaps, ruby gem chests, hanging iron gibbet cages
-   * - Smuggler boardwalks, illegal contraband fence, and Sacred Pirate Code Truce Shrine
+   * 3. The Brethren's Vault — Hollow Skull Cavern Sanctuary at (-380, 0, 220)
+   * Phase 3 rebuild:
+   * - 48m wide × 42m tall hollow stone archway at waterline
+   * - Stalactite rock teeth descending from upper brow to y=12 — open skull jaw
+   * - Moss ribbons with sine-wave vertex offset across brow
+   * - Dark emerald subterranean lagoon (X:-430 to -330, Z:170 to 270)
+   * - 4 brazier PointLights (#10b981, 2.2 intensity, 35m distance)
+   * - GLTF stilt boardwalks (structure-platform-dock.glb + small)
+   * - Barrel & crate props along market perimeter
+   * - Vendor nodes: [Contraband Smuggler], [Black Market Fence], [Underground Shipwright]
    */
-  
   public static createSkullCavernSanctuary(config: HarborConfig): THREE.Group {
     const caveGroup = new THREE.Group();
     caveGroup.name = `cave-${config.id}`;
     caveGroup.position.copy(config.position);
     if (config.rotationY) caveGroup.rotation.y = config.rotationY;
 
-    const basaltMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.95, flatShading: true });
-    
-    // Skull Archway Mouth
-    const leftPillarGeo = new THREE.CylinderGeometry(15, 20, 60, 8);
-    const leftPillar = new THREE.Mesh(leftPillarGeo, basaltMat);
-    leftPillar.position.set(-22.5, 30, 0);
-    caveGroup.add(leftPillar);
+    // Phase 3 materials — dark volcanic basalt
+    const basaltMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.97,
+      metalness: 0.06,
+      flatShading: true,
+    });
+    const graniteCliffMat = new THREE.MeshStandardMaterial({
+      color: 0x292524, // Dark granite sea cliff
+      roughness: 0.96,
+      metalness: 0.04,
+      flatShading: true,
+    });
+    const wetWaterlineMat = new THREE.MeshStandardMaterial({
+      color: 0x1c1917, // Wet basalt waterline
+      roughness: 0.85,
+      metalness: 0.18,
+      flatShading: true,
+    });
 
-    const rightPillarGeo = new THREE.CylinderGeometry(15, 20, 60, 8);
-    const rightPillar = new THREE.Mesh(rightPillarGeo, basaltMat);
-    rightPillar.position.set(22.5, 30, 0);
-    caveGroup.add(rightPillar);
-
-    const lintelGeo = new THREE.BoxGeometry(75, 12, 20);
-    const lintel = new THREE.Mesh(lintelGeo, basaltMat);
-    lintel.position.set(0, 54, 0); // Arch spanning 45m width, 38m height clearance (54 - 6 = 48 > 38)
-    caveGroup.add(lintel);
-
-    const mossMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, side: THREE.DoubleSide });
+    // Moss material with sine-wave vertex animation
+    const mossMat = new THREE.MeshStandardMaterial({
+      color: 0x2d372e, // Natural alpine moss draped over stone brow
+      side: THREE.DoubleSide,
+      roughness: 0.92,
+    });
     mossMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = { value: 0 };
       shader.vertexShader = `uniform float uTime;
@@ -664,76 +727,204 @@ export class CoastalHarborBuilder {
       mossMat.userData.shader = shader;
     };
 
-    // Upper jaw teeth descending to y = 12
-    for (let i = -2; i <= 2; i++) {
-        const toothGeo = new THREE.ConeGeometry(3, 30, 4);
-        toothGeo.rotateX(Math.PI);
-        const tooth = new THREE.Mesh(toothGeo, basaltMat);
-        tooth.position.set(i * 8, 27, 0); // 27 - 15 = 12
-        caveGroup.add(tooth);
+    // -------------------------------------------------------
+    // A. Volcanic Mountain Massif Exterior (260m wide, 140m tall)
+    // -------------------------------------------------------
+    const massifGeo = new THREE.CylinderGeometry(25, 145, 140, 10);
+    const massif = new THREE.Mesh(massifGeo, graniteCliffMat);
+    massif.position.set(0, 68, 60);
+    massif.scale.set(1.8, 1.0, 0.9);
+    massif.rotation.y = 0.6;
+    caveGroup.add(massif);
 
-        const mossGeo = new THREE.PlaneGeometry(2, 25, 4, 12);
-        const moss = new THREE.Mesh(mossGeo, mossMat);
-        moss.position.set(i * 8, 27, 2);
-        caveGroup.add(moss);
+    // Alpine moss summit cap
+    const massifCapGeo = new THREE.CylinderGeometry(12, 28, 25, 8);
+    const massifCap = new THREE.Mesh(massifCapGeo, new THREE.MeshStandardMaterial({
+      color: 0x2d372e, roughness: 0.94, flatShading: true,
+    }));
+    massifCap.position.set(0, 132, 60);
+    caveGroup.add(massifCap);
+
+    // Wet waterline band along cliff base
+    const massifWaterlineGeo = new THREE.CylinderGeometry(148, 152, 4, 10);
+    const massifWaterline = new THREE.Mesh(massifWaterlineGeo, wetWaterlineMat);
+    massifWaterline.position.set(0, 0, 60);
+    massifWaterline.scale.set(1.8, 1.0, 0.9);
+    caveGroup.add(massifWaterline);
+
+    // -------------------------------------------------------
+    // B. Hollow Skull Archway Entrance (48m wide, 42m tall clearance)
+    // -------------------------------------------------------
+    const ARCH_W = 24; // half-width → full span = 48m
+    const ARCH_H = 54; // pillar height; clearance = 54 - 12 = 42m
+
+    // Left brow pillar
+    const leftPillarGeo = new THREE.CylinderGeometry(13, 18, ARCH_H, 9);
+    const leftPillar = new THREE.Mesh(leftPillarGeo, basaltMat);
+    leftPillar.position.set(-ARCH_W, ARCH_H * 0.5, 0);
+    caveGroup.add(leftPillar);
+
+    // Right brow pillar
+    const rightPillarGeo = new THREE.CylinderGeometry(13, 18, ARCH_H, 9);
+    const rightPillar = new THREE.Mesh(rightPillarGeo, basaltMat);
+    rightPillar.position.set(ARCH_W, ARCH_H * 0.5, 0);
+    caveGroup.add(rightPillar);
+
+    // Monolithic brow lintel spanning the arch
+    const lintelGeo = new THREE.BoxGeometry(ARCH_W * 2 + 26, 14, 22);
+    const lintel = new THREE.Mesh(lintelGeo, basaltMat);
+    lintel.position.set(0, ARCH_H, 0);
+    caveGroup.add(lintel);
+
+    // Moss ribbons draped across brow with sine-wave vertex animation
+    for (let i = -2; i <= 2; i++) {
+      const mossGeo = new THREE.PlaneGeometry(2.2, 28, 5, 14);
+      const mossRibbon = new THREE.Mesh(mossGeo, mossMat);
+      mossRibbon.position.set(i * 10, ARCH_H - 8, 3);
+      caveGroup.add(mossRibbon);
     }
 
-    // Interior Subterranean Lagoon
-    const lagoonGeo = new THREE.BoxGeometry(100, 80, 100);
-    const lagoonMat = new THREE.MeshBasicMaterial({ color: 0x041f1a, side: THREE.BackSide });
-    const lagoon = new THREE.Mesh(lagoonGeo, lagoonMat);
-    lagoon.position.set(-380, 40, 220); // Local space? config.position is -380, 0, 220. So local 0, 40, 0
-    lagoon.position.set(0, 40, 0);
-    caveGroup.add(lagoon);
+    // Stalactite rock teeth — descending from upper brow toward y = 12 (open skull jaw)
+    for (let i = -3; i <= 3; i++) {
+      const toothH = 18 + Math.abs(i) * 3;
+      const toothGeo = new THREE.ConeGeometry(2.5 + Math.abs(i) * 0.4, toothH, 5);
+      toothGeo.rotateX(Math.PI); // Point downward
+      const tooth = new THREE.Mesh(toothGeo, basaltMat);
+      // Top at ARCH_H, tip at ARCH_H - toothH → ensure tip ≥ 12
+      tooth.position.set(i * 7.5, ARCH_H - toothH * 0.5, -2);
+      caveGroup.add(tooth);
+    }
 
-    const positions = [
-        new THREE.Vector3(-30, 15, -30),
-        new THREE.Vector3(30, 15, -30),
-        new THREE.Vector3(-30, 15, 30),
-        new THREE.Vector3(30, 15, 30),
+    // -------------------------------------------------------
+    // C. Subterranean Lagoon Interior Shell (X:-430 to -330, Z:170 to 270 → local coords centered at -380,0,220)
+    // Local: X:-50 to +50, Z:-50 to +50
+    // -------------------------------------------------------
+    const lagoonShellGeo = new THREE.BoxGeometry(110, 85, 115);
+    const lagoonShellMat = new THREE.MeshBasicMaterial({ color: 0x0c0c0f, side: THREE.BackSide });
+    const lagoonShell = new THREE.Mesh(lagoonShellGeo, lagoonShellMat);
+    lagoonShell.position.set(0, 40, 40);
+    caveGroup.add(lagoonShell);
+
+    // Dark emerald lagoon water plane
+    const lagoonWaterGeo = new THREE.PlaneGeometry(95, 95, 4, 4);
+    lagoonWaterGeo.rotateX(-Math.PI * 0.5);
+    const lagoonWaterMat = new THREE.MeshStandardMaterial({
+      color: 0x041f1a,
+      roughness: 0.08,
+      metalness: 0.55,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const lagoonWater = new THREE.Mesh(lagoonWaterGeo, lagoonWaterMat);
+    lagoonWater.position.set(0, -0.5, 40);
+    caveGroup.add(lagoonWater);
+
+    // 4 brazier point lights — emerald (#10b981), intensity 2.2, distance 35m
+    const brazierPositions = [
+      new THREE.Vector3(-28, 1, 18),
+      new THREE.Vector3(28, 1, 18),
+      new THREE.Vector3(-28, 1, 58),
+      new THREE.Vector3(28, 1, 58),
     ];
-    positions.forEach(pos => {
-        const brazier = new THREE.Mesh(new THREE.CylinderGeometry(2, 1, 3, 6), basaltMat);
-        brazier.position.copy(pos);
-        caveGroup.add(brazier);
-        const light = new THREE.PointLight(0x22c55e, 2.2, 35);
-        light.position.set(pos.x, pos.y + 2, pos.z);
-        caveGroup.add(light);
+    brazierPositions.forEach((pos) => {
+      // Brazier mesh
+      const brazierGeo = new THREE.CylinderGeometry(1.8, 1.0, 3.2, 7);
+      const brazier = new THREE.Mesh(brazierGeo, basaltMat);
+      brazier.position.copy(pos);
+      caveGroup.add(brazier);
+
+      // Flame bowl
+      const flameGeo = new THREE.SphereGeometry(1.4, 6, 5);
+      const flameMat = new THREE.MeshStandardMaterial({
+        color: 0xf97316,
+        emissive: new THREE.Color(0xf97316),
+        emissiveIntensity: 2.0,
+        roughness: 0.2,
+      });
+      const flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.position.set(pos.x, pos.y + 2.5, pos.z);
+      caveGroup.add(flame);
+
+      // Emerald PointLight
+      const light = new THREE.PointLight(0x10b981, 2.2, 35);
+      light.position.set(pos.x, pos.y + 3, pos.z);
+      caveGroup.add(light);
     });
 
-    // Pirate Stilt Platforms & Black Market
+    // -------------------------------------------------------
+    // D. GLTF Stilt Boardwalks — branching market platforms
+    // -------------------------------------------------------
     _gltfLoader.load('/assets/models/town/structure-platform-dock.glb', (gltf) => {
-        const dock = gltf.scene;
-        dock.position.set(0, 2, 0);
-        caveGroup.add(dock);
-
-        const s1 = dock.clone();
-        s1.position.set(-15, 2, 10);
-        caveGroup.add(s1);
+      // Main boardwalk spine along the lagoon edge
+      const boardwalkPositions = [
+        { x: 0, z: 15 },
+        { x: 0, z: 28 },
+        { x: 0, z: 41 },
+      ];
+      boardwalkPositions.forEach((p) => {
+        const board = gltf.scene.clone();
+        board.position.set(p.x, 0.4, p.z);
+        caveGroup.add(board);
+      });
     });
 
+    _gltfLoader.load('/assets/models/town/structure-platform-dock-small.glb', (gltf) => {
+      // Branching finger piers into the lagoon
+      const fingerPositions = [
+        { x: -12, z: 28, r: Math.PI / 2 },
+        { x: 12, z: 28, r: -Math.PI / 2 },
+        { x: -12, z: 41, r: Math.PI / 2 },
+        { x: 12, z: 41, r: -Math.PI / 2 },
+      ];
+      fingerPositions.forEach((p) => {
+        const finger = gltf.scene.clone();
+        finger.position.set(p.x, 0.4, p.z);
+        finger.rotation.y = p.r;
+        caveGroup.add(finger);
+      });
+    });
+
+    // -------------------------------------------------------
+    // E. Prop scatter — barrels & crates along market perimeter
+    // -------------------------------------------------------
     _gltfLoader.load('/assets/models/town/barrel.glb', (gltf) => {
-        const prop = gltf.scene;
-        prop.position.set(2, 4, 2);
+      const propPositions = [
+        { x: -6, z: 12 }, { x: 7, z: 16 }, { x: -8, z: 32 }, { x: 9, z: 44 },
+      ];
+      propPositions.forEach((p) => {
+        const prop = gltf.scene.clone();
+        prop.position.set(p.x, 0.42, p.z);
         caveGroup.add(prop);
-    });
-    _gltfLoader.load('/assets/models/town/crate.glb', (gltf) => {
-        const prop = gltf.scene;
-        prop.position.set(-5, 4, -2);
-        caveGroup.add(prop);
+      });
     });
 
+    _gltfLoader.load('/assets/models/town/crate.glb', (gltf) => {
+      const propPositions = [
+        { x: -4, z: 18 }, { x: 5, z: 30 }, { x: -7, z: 46 },
+      ];
+      propPositions.forEach((p) => {
+        const prop = gltf.scene.clone();
+        prop.position.set(p.x, 0.42, p.z);
+        prop.rotation.y = Math.random() * Math.PI;
+        caveGroup.add(prop);
+      });
+    });
+
+    // -------------------------------------------------------
+    // F. Interactive vendor nodes with nameplates
+    // -------------------------------------------------------
     const vendors = [
-        { name: '[Contraband Smuggler]', x: 0, z: -5 },
-        { name: '[Black Market Fence]', x: 10, z: 0 },
-        { name: '[Underground Shipwright]', x: -10, z: 5 },
+      { name: '[Contraband Smuggler]', x: -8, z: 20 },
+      { name: '[Black Market Fence]', x: 8, z: 28 },
+      { name: '[Underground Shipwright]', x: 0, z: 40 },
     ];
-    vendors.forEach(v => {
-        const node = new THREE.Group();
-        node.name = v.name;
-        node.userData.isVendor = true;
-        node.position.set(v.x, 5, v.z);
-        caveGroup.add(node);
+    vendors.forEach((v) => {
+      const node = new THREE.Group();
+      node.name = v.name;
+      node.userData.isVendor = true;
+      node.userData.nameplate = v.name;
+      node.position.set(v.x, 1.0, v.z);
+      caveGroup.add(node);
     });
 
     return caveGroup;
